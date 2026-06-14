@@ -1,0 +1,74 @@
+﻿<Window x:Class="Engeradios.Desktop.AtualizacaoWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Engeradios Updater" Height="350" Width="500"
+        WindowStartupLocation="CenterOwner" Background="#0F0F0F" FontFamily="Segoe UI"
+        ResizeMode="NoResize" WindowStyle="ToolWindow" Loaded="Window_Loaded">
+
+    <Grid Margin="25">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,20">
+            <TextBlock Text="ATUALIZAÇÕES DO SISTEMA" Foreground="White" FontSize="20" FontWeight="Bold"/>
+            <TextBlock Text="O sistema está a comunicar com a KingHost..." Foreground="#888888" FontSize="13" Margin="0,2,0,0"/>
+        </StackPanel>
+
+        <!-- Estado de Carregamento -->
+        <StackPanel x:Name="PainelAguardar" Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center">
+            <ProgressBar IsIndeterminate="True" Width="200" Height="10" Background="#1E1E1E" Foreground="#CC0000" BorderThickness="0" Margin="0,0,0,15"/>
+            <TextBlock Text="A verificar versão mais recente..." Foreground="#AAAAAA" HorizontalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- Estado Atualizado (Nenhuma atualização) -->
+        <StackPanel x:Name="PainelAtualizado" Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Visibility="Collapsed">
+            <TextBlock Text="✔️" Foreground="LimeGreen" FontSize="40" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+            <TextBlock Text="O SEU SISTEMA ESTÁ ATUALIZADO" Foreground="White" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center"/>
+            <TextBlock x:Name="TxtVersaoAtual" Text="Versão Local: 2.0.0" Foreground="#888888" FontSize="12" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+        </StackPanel>
+
+        <!-- Estado com Nova Atualização -->
+        <StackPanel x:Name="PainelNovaVersao" Grid.Row="1" VerticalAlignment="Center" Visibility="Collapsed">
+            <Border Background="#1E1E1E" CornerRadius="6" Padding="15" BorderBrush="#CC0000" BorderThickness="1">
+                <StackPanel>
+                    <TextBlock Text="NOVA VERSÃO ENCONTRADA!" Foreground="#CC0000" FontSize="16" FontWeight="Bold" Margin="0,0,0,10"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="100"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Versão Local:" Foreground="#888888" FontWeight="Bold"/>
+                        <TextBlock x:Name="TxtVerLocal" Grid.Column="1" Text="2.0.0" Foreground="White"/>
+                    </Grid>
+                    <Grid Margin="0,5,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="100"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Nova Versão:" Foreground="#888888" FontWeight="Bold"/>
+                        <TextBlock x:Name="TxtVerNuvem" Grid.Column="1" Text="2.1.0" Foreground="LimeGreen" FontWeight="Bold"/>
+                    </Grid>
+
+                    <TextBlock Text="NOTAS DE LANÇAMENTO:" Foreground="#888888" FontSize="10" FontWeight="Bold" Margin="0,15,0,5"/>
+                    <TextBlock x:Name="TxtNotas" Text="..." Foreground="#CCCCCC" TextWrapping="Wrap" FontSize="12"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
+        <!-- Estado de Erro -->
+        <StackPanel x:Name="PainelErro" Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Visibility="Collapsed">
+            <TextBlock Text="⚠️" Foreground="Orange" FontSize="40" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+            <TextBlock Text="FALHA DE COMUNICAÇÃO" Foreground="White" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center"/>
+            <TextBlock Text="Não foi possível aceder ao servidor de atualizações." Foreground="#888888" FontSize="12" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+        </StackPanel>
+
+        <!-- Botões de Ação -->
+        <Grid Grid.Row="2">
+            <Button x:Name="BtnFechar" Content="FECHAR" Width="120" Height="40" Background="#2A2A2A" Foreground="White" FontWeight="Bold" BorderThickness="0" Cursor="Hand" HorizontalAlignment="Left" Click="BtnFechar_Click"/>
+            <Button x:Name="BtnBaixar" Content="TRANSFERIR ATUALIZAÇÃO" Width="220" Height="40" Background="#CC0000" Foreground="White" FontWeight="Bold" BorderThickness="0" Cursor="Hand" HorizontalAlignment="Right" Visibility="Collapsed" Click="BtnBaixar_Click"/>
+        </Grid>
+    </Grid>
+</Window>

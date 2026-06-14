@@ -1,90 +1,80 @@
-﻿using System;
+﻿// Caminho do arquivo: Engeradios.Desktop/LoginWindow.xaml.cs
+
 using System.Windows;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
+using System.Windows.Input;
+using Engeradios.Desktop.Services;
 
 namespace Engeradios.Desktop
 {
     public partial class LoginWindow : Window
     {
-        private bool _isTemaEscuro = true;
+        private DatabaseService _dbService;
+
+        // Propriedades públicas que o App.xaml.cs vai ler se o login for um sucesso
+        public string UtilizadorLogado { get; private set; } = string.Empty;
+        public string NivelDeAcesso { get; private set; } = string.Empty;
 
         public LoginWindow()
         {
             InitializeComponent();
+            _dbService = new DatabaseService();
+            TxtUsername.Focus();
         }
 
-        private void BtnTema_Click(object sender, RoutedEventArgs e)
+        private void BtnEntrar_Click(object sender, RoutedEventArgs e)
         {
-            _isTemaEscuro = !_isTemaEscuro;
+            FazerLogin();
+        }
 
-            if (_isTemaEscuro)
+        private void TxtPassword_KeyDown(object sender, KeyEventArgs e)
+        {
+            // Permite fazer login ao carregar na tecla ENTER
+            if (e.Key == Key.Enter)
             {
-                JanelaPrincipal.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E"));
-                LblUsuario.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#AAAAAA"));
-                LblSenha.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#AAAAAA"));
+                FazerLogin();
+            }
+        }
 
-                TxtUsuario.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2A2A2A"));
-                TxtUsuario.Foreground = Brushes.White;
-                TxtSenha.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2A2A2A"));
-                TxtSenha.Foreground = Brushes.White;
+        private void FazerLogin()
+        {
+            string user = TxtUsername.Text.Trim();
+            string pass = TxtPassword.Password;
 
-                BtnTema.Content = "☀️ Tema Claro";
-                BtnTema.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#AAAAAA"));
-                BtnSair.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#888888"));
+            if (string.IsNullOrEmpty(user) || string.IsNullOrEmpty(pass))
+            {
+                MostrarErro("Preencha todos os campos.");
+                return;
+            }
 
-                // Corrigido para caminho relativo
-                ImgLogo.Source = new BitmapImage(new Uri("logo_escuro.png", UriKind.Relative));
+            // Vai à Base de Dados SQLite verificar as credenciais
+            string? nivelAcesso = _dbService.ValidarLogin(user, pass);
+
+            if (nivelAcesso != null)
+            {
+                // Sucesso!
+                UtilizadorLogado = user;
+                NivelDeAcesso = nivelAcesso;
+                this.DialogResult = true;
+                this.Close(); // Fecha a janela de login e avança
             }
             else
             {
-                JanelaPrincipal.Background = new SolidColorBrush(Colors.WhiteSmoke);
-                LblUsuario.Foreground = new SolidColorBrush(Colors.Black);
-                LblSenha.Foreground = new SolidColorBrush(Colors.Black);
-
-                TxtUsuario.Background = new SolidColorBrush(Colors.White);
-                TxtUsuario.Foreground = Brushes.Black;
-                TxtSenha.Background = new SolidColorBrush(Colors.White);
-                TxtSenha.Foreground = Brushes.Black;
-
-                BtnTema.Content = "🌙 Tema Escuro";
-                BtnTema.Foreground = new SolidColorBrush(Colors.DimGray);
-                BtnSair.Foreground = new SolidColorBrush(Colors.DimGray);
-
-                // Corrigido para caminho relativo
-                ImgLogo.Source = new BitmapImage(new Uri("logo_claro.png", UriKind.Relative));
+                // Falhou!
+                MostrarErro("Credenciais inválidas. Tente novamente.");
+                TxtPassword.Clear();
             }
         }
 
-        private void BtnLogin_Click(object sender, RoutedEventArgs e)
+        private void MostrarErro(string mensagem)
         {
-            string utilizador = TxtUsuario.Text.ToLower().Trim();
-            string senha = TxtSenha.Password;
-
-            if (utilizador == "admin" && senha == "admin")
-            {
-                AbrirSistema("Luiz Carlos (Admin)", "Administrador");
-            }
-            else if (utilizador == "operador" && senha == "123")
-            {
-                AbrirSistema("João Silva", "Operador");
-            }
-            else
-            {
-                TxtErro.Visibility = Visibility.Visible;
-            }
-        }
-
-        private void AbrirSistema(string nome, string nivel)
-        {
-            MainWindow janelaPrincipal = new MainWindow(nome, nivel, _isTemaEscuro);
-            janelaPrincipal.Show();
-            this.Close();
+            MsgErro.Visibility = Visibility.Visible;
+            ((System.Windows.Controls.TextBlock)MsgErro.Child).Text = mensagem;
         }
 
         private void BtnSair_Click(object sender, RoutedEventArgs e)
         {
-            Application.Current.Shutdown();
+            this.DialogResult = false;
+            this.Close();
         }
     }
 }

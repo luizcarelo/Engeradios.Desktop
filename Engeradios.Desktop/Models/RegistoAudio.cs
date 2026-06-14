@@ -18,5 +18,8 @@ namespace Engeradios.Desktop.Models
         public string Anotacoes { get; set; } = string.Empty;
 
         public bool SincronizadoComNuvem { get; set; }
+
+        // NOVO: Indica se o ficheiro está marcado para não ser apagado automaticamente
+        public bool Protegido { get; set; }
     }
 }

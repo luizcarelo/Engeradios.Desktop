@@ -3,31 +3,37 @@
 using System;
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using System.Collections.Generic;
-using System.Windows.Controls;
+using System.Linq;
 using Engeradios.Desktop.Services;
 using Engeradios.Desktop.Models;
+using Engeradios.Desktop.Helpers;
 
 namespace Engeradios.Desktop
 {
     public partial class MainWindow : Window
     {
-        // Dicionário para capturar múltiplos canais de hardware rodando concorrentemente
-        private Dictionary<string, AudioRecorderService> _gravadoresAtivos = new Dictionary<string, AudioRecorderService>();
+        private readonly Dictionary<string, AudioRecorderService> _gravadoresAtivos = [];
 
-        private DatabaseService _databaseService = null!;
-        private TelemetryClient _telemetryClient = null!;
-        private string _pastaGravacoes = string.Empty;
+        private readonly DatabaseService _databaseService;
+        private readonly TelemetryClient _telemetryClient;
+        private readonly LogService _logService;
+        private readonly CloudSyncService _cloudSyncService;
+
+        private readonly string _pastaGravacoes;
 
         private DispatcherTimer _timerMonitoramento = null!;
         private DispatcherTimer _timerEspectro = null!;
-        private Random _random = new Random();
+        private readonly Random _random = new();
 
-        private string _nivelAcessoUsuario;
-        private string _nomeUsuarioLogado;
+        private List<RegistoAudio> _todosOsRegistos = [];
+
+        private readonly string _nivelAcessoUsuario;
+        private readonly string _nomeUsuarioLogado;
         private bool _isTemaEscuro;
 
         public MainWindow(string nomeUsuario = "Administrador Local", string nivelAcesso = "Administrador", bool temaEscuro = true)
@@ -38,64 +44,74 @@ namespace Engeradios.Desktop
             _nivelAcessoUsuario = nivelAcesso;
             _isTemaEscuro = temaEscuro;
 
-            if (TxtOperadorLogado != null)
-                TxtOperadorLogado.Text = $"Operador: {_nomeUsuarioLogado} ({_nivelAcessoUsuario})";
+            // Correção IDE0031: Null propagation
+            if (TxtOperadorLogado != null) TxtOperadorLogado.Text = _nomeUsuarioLogado;
 
-            // Pasta oculta e segura partilhada no Windows para logs de gravação
             _pastaGravacoes = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Engeradios_Audios");
 
-            _databaseService = new DatabaseService();
-            _telemetryClient = new TelemetryClient();
+            _databaseService = new();
+            _telemetryClient = new();
+            _logService = new();
+            _cloudSyncService = new();
 
             AtualizarHistorico();
             AplicarTema();
             ConfigurarMonitoramentoSegundoPlano();
 
-            // DISPARO AUTOMÁTICO REQUISITADO: Gravação e Espectro iniciam na inicialização
             IniciarGravacaoAutomatica();
             IniciarAnimacaoEspectro();
+
+            _logService.Registar(_nomeUsuarioLogado, "Iniciou o Centro de Comando C3");
         }
 
-        /// <summary>
-        /// Instancia e liga a captura de todas as entradas de áudio de forma simultânea.
-        /// </summary>
         private void IniciarGravacaoAutomatica()
         {
             try
             {
                 _gravadoresAtivos.Clear();
-                string[] canais = { "Segurança", "Manutenção", "Brigada" };
+
+                var canaisConfigurados = ConfigService.CarregarCanais();
                 int numPlacasDisponiveis = NAudio.Wave.WaveInEvent.DeviceCount;
 
-                // CORRIGIDO: Nome da variável alinhado!
-                float sensibilidadeGlobal = 0.05f;
-
-                for (int i = 0; i < canais.Length; i++)
+                foreach (var config in canaisConfigurados)
                 {
-                    var gravador = new AudioRecorderService(_pastaGravacoes);
-                    gravador.Sensibilidade = sensibilidadeGlobal; // <-- Agora usa a variável correta
-                    gravador.NomeDoCanal = canais[i];
+                    // Correção IDE0017: Object Initialization
+                    var gravador = new AudioRecorderService(_pastaGravacoes)
+                    {
+                        Sensibilidade = config.VAD,
+                        NomeDoCanal = config.Nome
+                    };
 
-                    // Vincula canais a placas físicas disponíveis diferentes. Se houver apenas 1, mapeia no canal 0.
-                    int placaID = i < numPlacasDisponiveis ? i : 0;
+                    gravador.GravacaoFinalizada += (sender, registo) =>
+                    {
+                        Application.Current.Dispatcher.InvokeAsync(() =>
+                        {
+                            _databaseService.InserirRegisto(registo);
+                            AtualizarHistorico();
+                        });
+                    };
+
+                    int placaID = config.PlacaIndex < numPlacasDisponiveis ? config.PlacaIndex : 0;
+
                     gravador.IniciarEscuta(placaID);
-
-                    _gravadoresAtivos.Add(canais[i], gravador);
+                    _gravadoresAtivos.Add(config.Nome, gravador);
                 }
+
+                TxtCanaisAtivos.Text = $"{canaisConfigurados.Count} Canais em Monitorização";
+                LedGravando.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CC0000"));
+                TxtGravando.Text = "GRAVAÇÃO ATIVA";
+                TxtGravando.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CC0000"));
+                BtnPararEmergencia.Content = "PARAR MOTORES (EMERGÊNCIA)";
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Erro de hardware ao iniciar os motores de áudio: {ex.Message}", "Erro Crítico", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Erro ao iniciar os motores de áudio: {ex.Message}", "Erro", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
-        /// <summary>
-        /// Move as barras do espectro de áudio criando a simbologia visual de gravação ativa.
-        /// </summary>
         private void IniciarAnimacaoEspectro()
         {
-            _timerEspectro = new DispatcherTimer();
-            _timerEspectro.Interval = TimeSpan.FromMilliseconds(120);
+            _timerEspectro = new() { Interval = TimeSpan.FromMilliseconds(120) };
             _timerEspectro.Tick += (s, e) =>
             {
                 BarraA1.Height = _random.Next(5, 45);
@@ -105,32 +121,150 @@ namespace Engeradios.Desktop
                 BarraA5.Height = _random.Next(5, 50);
                 BarraA6.Height = _random.Next(15, 60);
                 BarraA7.Height = _random.Next(5, 40);
-                BarraA8.Height = _random.Next(10, 55);
 
-                LedGravando.Opacity = LedGravando.Opacity == 1 ? 0.2 : 1;
+                LedGravando.Opacity = _gravadoresAtivos.Count > 0 && LedGravando.Opacity == 1 ? 0.3 : 1;
             };
             _timerEspectro.Start();
         }
 
-        /// <summary>
-        /// Protege o menu de configurações técnicas contra acessos não autorizados de operadores.
-        /// </summary>
+        private void AtualizarHistorico()
+        {
+            if (_databaseService != null && GridHistorico != null)
+            {
+                _todosOsRegistos = _databaseService.ObterHistorico();
+                AplicarFiltros();
+            }
+        }
+
+        private void TxtBusca_TextChanged(object sender, TextChangedEventArgs e) => AplicarFiltros();
+        private void DpDataFiltro_SelectedDateChanged(object sender, SelectionChangedEventArgs e) => AplicarFiltros();
+
+        private void AplicarFiltros()
+        {
+            var query = _todosOsRegistos.AsQueryable();
+
+            string textoFiltro = TxtBusca.Text.Trim(); // Correção CA1862
+            if (!string.IsNullOrEmpty(textoFiltro))
+            {
+                query = query.Where(r => r.Canal.Contains(textoFiltro, StringComparison.OrdinalIgnoreCase) ||
+                                         r.Anotacoes.Contains(textoFiltro, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (DpDataFiltro.SelectedDate.HasValue)
+            {
+                var data = DpDataFiltro.SelectedDate.Value.Date;
+                query = query.Where(r => r.DataHoraGravacao.Date == data);
+            }
+
+            GridHistorico.ItemsSource = query.ToList();
+
+            int audiosHoje = _todosOsRegistos.Count(r => r.DataHoraGravacao.Date == DateTime.Today);
+            TxtAudiosHoje.Text = audiosHoje.ToString();
+        }
+
+        private void BtnAnotar_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.CommandParameter is RegistoAudio registo)
+            {
+                Window prompt = new()
+                {
+                    Width = 400,
+                    Height = 250,
+                    Title = "Anotação de Áudio",
+                    WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                    Owner = this,
+                    WindowStyle = WindowStyle.ToolWindow,
+                    Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E"))
+                };
+
+                StackPanel painel = new() { Margin = new Thickness(20) };
+                painel.Children.Add(new TextBlock { Text = $"Adicionar nota (Canal {registo.Canal}):", Foreground = Brushes.White, Margin = new Thickness(0, 0, 0, 10) });
+
+                TextBox txtNota = new() { Text = registo.Anotacoes, Height = 80, TextWrapping = TextWrapping.Wrap, AcceptsReturn = true, Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2A2A2A")), Foreground = Brushes.White, Padding = new Thickness(5) };
+                painel.Children.Add(txtNota);
+
+                Button btnSalvar = new() { Content = "GUARDAR NOTA", Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CC0000")), Foreground = Brushes.White, Height = 35, Margin = new Thickness(0, 15, 0, 0), FontWeight = FontWeights.Bold, Cursor = System.Windows.Input.Cursors.Hand };
+                btnSalvar.Click += (s, ev) => {
+                    _databaseService.AtualizarAnotacao(registo.Id, txtNota.Text);
+                    _logService.Registar(_nomeUsuarioLogado, $"Adicionou nota ao áudio ID {registo.Id}");
+                    prompt.DialogResult = true;
+                    prompt.Close();
+                };
+                painel.Children.Add(btnSalvar);
+                prompt.Content = painel;
+
+                if (prompt.ShowDialog() == true) AtualizarHistorico();
+            }
+        }
+
+        private void BtnPlay_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.CommandParameter is RegistoAudio registo)
+            {
+                if (File.Exists(registo.CaminhoFicheiro))
+                {
+                    _logService.Registar(_nomeUsuarioLogado, $"Reproduziu áudio ID {registo.Id} no Leitor Interno");
+
+                    AudioPlayerWindow leitor = new(registo.CaminhoFicheiro, registo.Canal, registo.DataHoraGravacao.ToString("dd/MM/yyyy HH:mm:ss"))
+                    {
+                        Owner = this
+                    };
+                    leitor.Show();
+                }
+                else
+                {
+                    MessageBox.Show("O ficheiro original não foi encontrado ou já foi sincronizado e apagado.", "Ficheiro Ausente", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+        }
+
+        private void BtnExportar_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.CommandParameter is RegistoAudio registo && File.Exists(registo.CaminhoFicheiro))
+            {
+                _logService.Registar(_nomeUsuarioLogado, $"Exportou ficheiro de áudio ID {registo.Id}");
+                MessageBox.Show($"O ficheiro está localizado em:\n{registo.CaminhoFicheiro}", "Exportação", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
+
+        private void BtnPararEmergencia_Click(object sender, RoutedEventArgs e)
+        {
+            if (_gravadoresAtivos.Count > 0)
+            {
+                foreach (var canal in _gravadoresAtivos) canal.Value.PararEscuta();
+                _gravadoresAtivos.Clear();
+
+                TxtGravando.Text = "SISTEMA PARADO";
+                TxtGravando.Foreground = Brushes.Gray;
+                LedGravando.Fill = Brushes.Gray;
+                TxtCanaisAtivos.Text = "Nenhum canal ativo";
+                BtnPararEmergencia.Content = "REINICIAR MOTORES";
+                _logService.Registar(_nomeUsuarioLogado, "Parou os motores de gravação manualmente", "Aviso");
+            }
+            else
+            {
+                IniciarGravacaoAutomatica();
+                _logService.Registar(_nomeUsuarioLogado, "Reiniciou os motores de gravação");
+            }
+        }
+
         private void MenuConfig_Click(object sender, RoutedEventArgs e)
         {
             if (_nivelAcessoUsuario != "Administrador")
             {
-                MessageBox.Show("Acesso Negado! Apenas Administradores podem mapear placas, alterar sensibilidade de canais e configurar volumes.",
-                                "Segurança Engeradios", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Acesso Negado!", "Segurança", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
 
-            // Abre a nova janela de configurações se o utilizador for Administrador
-            ConfiguracoesWindow telaConfig = new ConfiguracoesWindow();
-            telaConfig.Owner = this; // Bloqueia a janela principal enquanto esta estiver aberta
+            foreach (var canal in _gravadoresAtivos) canal.Value.PararEscuta();
+            _gravadoresAtivos.Clear();
+
+            ConfiguracoesWindow telaConfig = new(true) { Owner = this };
             telaConfig.ShowDialog();
+
+            IniciarGravacaoAutomatica();
         }
 
-        // --- SISTEMA INTERNO DE ALTERNÂNCIA DE TEMAS DE PRODUÇÃO ---
         private void MenuTema_Click(object sender, RoutedEventArgs e)
         {
             _isTemaEscuro = !_isTemaEscuro;
@@ -139,82 +273,63 @@ namespace Engeradios.Desktop
 
         private void AplicarTema()
         {
-            // Abordagem à prova de falhas: procura a imagem na pasta exata onde o .exe está a ser executado.
             string pastaBase = AppDomain.CurrentDomain.BaseDirectory;
 
             if (_isTemaEscuro)
             {
-                JanelaPrincipal.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E"));
-                MenuSuperior.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2A2A2A"));
+                JanelaPrincipal.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#0F0F0F"));
+                MenuSuperior.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1A1A1A"));
                 MenuSuperior.Foreground = Brushes.White;
                 MenuTema.Header = "☀️ Tema Claro";
 
-                CabecalhoBorder.Background = Brushes.Black;
+                CabecalhoBorder.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#151515"));
 
-                // Carrega logo escuro pelo caminho absoluto
                 string logoEscuroPath = Path.Combine(pastaBase, "logo_escuro.png");
-                if (File.Exists(logoEscuroPath))
-                {
-                    ImgLogoPrincipal.Source = new BitmapImage(new Uri(logoEscuroPath, UriKind.Absolute));
-                }
+                if (File.Exists(logoEscuroPath)) ImgLogoPrincipal.Source = new BitmapImage(new Uri(logoEscuroPath, UriKind.Absolute));
 
-                AreaControlos.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2A2A2A"));
-                LblCanais.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#AAAAAA"));
-                LblCanaisLista.Foreground = Brushes.White;
+                Card1.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E"));
+                Card2.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E"));
+                Card3.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E"));
+                Card4.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E"));
 
-                GrupoHistorico.Foreground = Brushes.White;
-                GrupoHistorico.BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#444444"));
+                PainelEsquerdo.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E"));
+                PainelDireito.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E"));
 
                 GridHistorico.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E"));
                 GridHistorico.RowBackground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E"));
-                GridHistorico.AlternatingRowBackground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2A2A2A"));
-
-                RodapeBorder.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#121212"));
-                LblUsoDisco.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#AAAAAA"));
-                TxtUsoDisco.Foreground = Brushes.White;
-                TxtOperadorLogado.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#AAAAAA"));
-                TxtEstadoGravacao.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#AAAAAA"));
+                GridHistorico.AlternatingRowBackground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#252525"));
+                GridHistorico.Foreground = Brushes.White;
             }
             else
             {
-                JanelaPrincipal.Background = new SolidColorBrush(Colors.WhiteSmoke);
-                MenuSuperior.Background = new SolidColorBrush(Colors.LightGray);
+                JanelaPrincipal.Background = new SolidColorBrush(Colors.LightGray);
+                MenuSuperior.Background = new SolidColorBrush(Colors.White);
                 MenuSuperior.Foreground = Brushes.Black;
                 MenuTema.Header = "🌙 Tema Escuro";
 
-                CabecalhoBorder.Background = Brushes.White;
+                CabecalhoBorder.Background = new SolidColorBrush(Colors.WhiteSmoke);
 
-                // Carrega logo claro pelo caminho absoluto
                 string logoClaroPath = Path.Combine(pastaBase, "logo_claro.png");
-                if (File.Exists(logoClaroPath))
-                {
-                    ImgLogoPrincipal.Source = new BitmapImage(new Uri(logoClaroPath, UriKind.Absolute));
-                }
+                if (File.Exists(logoClaroPath)) ImgLogoPrincipal.Source = new BitmapImage(new Uri(logoClaroPath, UriKind.Absolute));
 
-                AreaControlos.Background = Brushes.White;
-                LblCanais.Foreground = Brushes.DarkGray;
-                LblCanaisLista.Foreground = Brushes.Black;
+                Card1.Background = Brushes.White;
+                Card2.Background = Brushes.White;
+                Card3.Background = Brushes.White;
+                Card4.Background = Brushes.White;
 
-                GrupoHistorico.Foreground = Brushes.Black;
-                GrupoHistorico.BorderBrush = Brushes.LightGray;
+                PainelEsquerdo.Background = Brushes.White;
+                PainelDireito.Background = Brushes.White;
 
                 GridHistorico.Background = Brushes.White;
                 GridHistorico.RowBackground = Brushes.White;
                 GridHistorico.AlternatingRowBackground = new SolidColorBrush(Colors.WhiteSmoke);
-
-                RodapeBorder.Background = new SolidColorBrush(Colors.LightGray);
-                LblUsoDisco.Foreground = Brushes.DarkGray;
-                TxtUsoDisco.Foreground = Brushes.Black;
-                TxtOperadorLogado.Foreground = Brushes.DarkGray;
-                TxtEstadoGravacao.Foreground = Brushes.DarkGray;
+                GridHistorico.Foreground = Brushes.Black;
             }
         }
 
-        // --- MONITORAMENTO DE REDE E DISCO ---
         private void ConfigurarMonitoramentoSegundoPlano()
         {
-            _timerMonitoramento = new DispatcherTimer();
-            _timerMonitoramento.Interval = TimeSpan.FromSeconds(30);
+            _timerMonitoramento = new() { Interval = TimeSpan.FromSeconds(30) };
             _timerMonitoramento.Tick += TimerMonitoramento_Tick;
             _timerMonitoramento.Start();
             TimerMonitoramento_Tick(this, EventArgs.Empty);
@@ -225,11 +340,12 @@ namespace Engeradios.Desktop
             try
             {
                 string raiz = Path.GetPathRoot(_pastaGravacoes) ?? "C:\\";
-                DriveInfo disco = new DriveInfo(raiz);
+                DriveInfo disco = new(raiz);
                 double espacoLivreGb = disco.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0);
 
-                double espacoUsadoNaPastaGb = 1.5;
-                double quotaMaximaGb = 40.0;
+                // NOVO: Calcula o tamanho real da pasta em Gigabytes
+                double espacoUsadoNaPastaGb = CalcularTamanhoPasta(_pastaGravacoes) / (1024.0 * 1024.0 * 1024.0);
+                double quotaMaximaGb = 40.0; // Aqui você define o limite do disco para este cliente
 
                 if (BarraDisco != null && TxtUsoDisco != null)
                 {
@@ -241,11 +357,32 @@ namespace Engeradios.Desktop
                         BarraDisco.Foreground = new SolidColorBrush(Colors.Red);
                 }
 
+                string chaveDaNuvem = string.Empty;
+                try { chaveDaNuvem = ConfigSecurity.ObterApiKey(); } catch { }
+
                 if (_telemetryClient != null && LedNuvem != null && TxtEstadoNuvem != null)
                 {
-                    await _telemetryClient.EnviarHeartbeatAsync("CHAVE_CLIENTE_EXEMPLO", espacoLivreGb);
-                    LedNuvem.Fill = new SolidColorBrush(Colors.LimeGreen);
-                    TxtEstadoNuvem.Text = "Nuvem: Online";
+                    if (!string.IsNullOrEmpty(chaveDaNuvem))
+                    {
+                        await _telemetryClient.EnviarHeartbeatAsync(chaveDaNuvem, espacoLivreGb);
+                        LedNuvem.Fill = new SolidColorBrush(Colors.LimeGreen);
+                        TxtEstadoNuvem.Text = "Conectado ao Cloud Sync";
+
+                        // NOVO: Executa a Regra FIFO Local - Protegendo Arquivos Marcados
+                        GerirEspacoLocalFIFO(espacoUsadoNaPastaGb, quotaMaximaGb);
+
+                        // Envia áudios pendentes
+                        int arquivosEnviados = await _cloudSyncService.SincronizarPendentesAsync();
+                        if (arquivosEnviados > 0) AtualizarHistorico();
+
+                        // NOVO: Envia os logs de auditoria
+                        await _cloudSyncService.SincronizarLogsAsync();
+                    }
+                    else
+                    {
+                        LedNuvem.Fill = new SolidColorBrush(Colors.Orange);
+                        TxtEstadoNuvem.Text = "Aguardando Setup de API";
+                    }
                 }
             }
             catch (Exception)
@@ -253,21 +390,72 @@ namespace Engeradios.Desktop
                 if (LedNuvem != null && TxtEstadoNuvem != null)
                 {
                     LedNuvem.Fill = new SolidColorBrush(Colors.Red);
-                    TxtEstadoNuvem.Text = "Nuvem: Offline";
+                    TxtEstadoNuvem.Text = "Sem Ligação KingHost";
                 }
             }
         }
 
-        private void AtualizarHistorico()
+        // --- NOVAS FUNÇÕES DE ESPAÇO E PROTEÇÃO ---
+
+        private double CalcularTamanhoPasta(string caminho)
         {
-            if (_databaseService != null && GridHistorico != null)
+            if (!Directory.Exists(caminho)) return 0;
+            // Lê todos os ficheiros da pasta e soma o tamanho em bytes
+            return new DirectoryInfo(caminho).EnumerateFiles("*.*", SearchOption.AllDirectories).Sum(fi => fi.Length);
+        }
+
+        private void GerirEspacoLocalFIFO(double espacoAtualGb, double quotaGb)
+        {
+            try
             {
-                var lista = _databaseService.ObterHistorico();
-                GridHistorico.ItemsSource = lista;
+                // A regra é clara: Se o disco ainda tem espaço, NÃO APAGAR NADA!
+                if (espacoAtualGb <= quotaGb) return;
+
+                // Atingiu o limite. Pede à base de dados os 50 ficheiros mais antigos que NÃO estão marcados (Protegido = 0)
+                var candidatos = _databaseService.ObterCandidatosLimpeza(50);
+
+                int apagados = 0;
+                foreach (var audio in candidatos)
+                {
+                    try
+                    {
+                        if (File.Exists(audio.CaminhoFicheiro))
+                        {
+                            File.Delete(audio.CaminhoFicheiro);
+                        }
+                        // Remove o registo do histórico
+                        _databaseService.RemoverRegisto(audio.Id);
+                        apagados++;
+                    }
+                    catch { /* Ficheiro trancado pelo Windows, ignora por agora */ }
+                }
+
+                if (apagados > 0)
+                {
+                    _logService.Registar(_nomeUsuarioLogado, $"Limpeza Automática Local: {apagados} áudios desprotegidos foram apagados porque o disco atingiu o limite de {quotaGb}GB.", "Aviso");
+                    Application.Current.Dispatcher.InvokeAsync(AtualizarHistorico);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Erro na rotina FIFO: {ex.Message}");
             }
         }
 
-        // --- GESTÃO DE FECHAMENTO COM VALIDAÇÃO DE SENHA ---
+        private void BtnProteger_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.CommandParameter is RegistoAudio registo)
+            {
+                bool novoEstado = !registo.Protegido;
+                _databaseService.AlternarProtecao(registo.Id, novoEstado);
+
+                string acao = novoEstado ? "protegeu" : "desprotegeu";
+                _logService.Registar(_nomeUsuarioLogado, $"O operador {acao} o áudio ID {registo.Id} contra exclusão automática no PC.");
+
+                AtualizarHistorico();
+            }
+        }
+
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
             if (_nivelAcessoUsuario == "Operador")
@@ -276,22 +464,18 @@ namespace Engeradios.Desktop
                 if (!autorizado)
                 {
                     e.Cancel = true;
+                    return;
                 }
             }
-            else
-            {
-                // Encerramento limpo efetuado por Administrador técnico
-                foreach (var canal in _gravadoresAtivos)
-                {
-                    canal.Value.PararEscuta();
-                }
-            }
+
+            _logService.Registar(_nomeUsuarioLogado, "Encerrou o sistema Engeradios");
+            foreach (var canal in _gravadoresAtivos) canal.Value.PararEscuta();
         }
 
         private bool MostrarPromptSenhaAdmin()
         {
             bool senhaCorreta = false;
-            Window prompt = new Window()
+            Window prompt = new()
             {
                 Width = 350,
                 Height = 220,
@@ -303,25 +487,16 @@ namespace Engeradios.Desktop
                 WindowStyle = WindowStyle.ToolWindow
             };
 
-            StackPanel painel = new StackPanel() { Margin = new Thickness(20) };
-            TextBlock txtTitulo = new TextBlock() { Text = "Acesso Restrito", Foreground = Brushes.White, FontSize = 18, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 10) };
-            TextBlock txtLabel = new TextBlock() { Text = "Para fechar o gravador, um Administrador\ndeve introduzir a sua palavra-passe:", Foreground = Brushes.LightGray, Margin = new Thickness(0, 0, 0, 15) };
-            PasswordBox pwdBox = new PasswordBox() { Padding = new Thickness(5), FontSize = 16, Margin = new Thickness(0, 0, 0, 20) };
-            Button btnOk = new Button() { Content = "AUTORIZAR SAÍDA", Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CC0000")), Foreground = Brushes.White, Height = 35, FontWeight = FontWeights.Bold, Cursor = System.Windows.Input.Cursors.Hand };
+            StackPanel painel = new() { Margin = new Thickness(20) };
+            TextBlock txtTitulo = new() { Text = "Acesso Restrito", Foreground = Brushes.White, FontSize = 18, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 10) };
+            TextBlock txtLabel = new() { Text = "Para fechar o gravador, um Administrador\ndeve introduzir a sua palavra-passe:", Foreground = Brushes.LightGray, Margin = new Thickness(0, 0, 0, 15) };
+            PasswordBox pwdBox = new() { Padding = new Thickness(5), FontSize = 16, Margin = new Thickness(0, 0, 0, 20) };
+            Button btnOk = new() { Content = "AUTORIZAR SAÍDA", Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CC0000")), Foreground = Brushes.White, Height = 35, FontWeight = FontWeights.Bold, Cursor = System.Windows.Input.Cursors.Hand };
 
             btnOk.Click += (s, ev) =>
             {
-                if (pwdBox.Password == "admin")
-                {
-                    senhaCorreta = true;
-                    foreach (var canal in _gravadoresAtivos) canal.Value.PararEscuta();
-                    prompt.Close();
-                }
-                else
-                {
-                    MessageBox.Show("Senha de administrador incorreta!", "Erro de Segurança", MessageBoxButton.OK, MessageBoxImage.Error);
-                    pwdBox.Clear();
-                }
+                if (pwdBox.Password == "admin") { senhaCorreta = true; prompt.Close(); }
+                else { MessageBox.Show("Senha incorreta!", "Erro", MessageBoxButton.OK, MessageBoxImage.Error); pwdBox.Clear(); }
             };
 
             painel.Children.Add(txtTitulo); painel.Children.Add(txtLabel); painel.Children.Add(pwdBox); painel.Children.Add(btnOk);
@@ -331,13 +506,32 @@ namespace Engeradios.Desktop
             return senhaCorreta;
         }
 
-        // --- OUTRAS ABAS DO MENU DE SUPORTE ---
-        private void MenuAtualizar_Click(object sender, RoutedEventArgs e) { MessageBox.Show("Buscando atualizações na nuvem KingHost...", "Atualizador", MessageBoxButton.OK, MessageBoxImage.Information); }
-        private void MenuRemoto_Click(object sender, RoutedEventArgs e) { MessageBox.Show("Iniciando módulo de conexão remota para a equipa técnica da Engeradios...", "Suporte Remoto", MessageBoxButton.OK, MessageBoxImage.Information); }
-        private void MenuSuporte_Click(object sender, RoutedEventArgs e)
+        private void MenuCadastro_Click(object sender, RoutedEventArgs e)
         {
-            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = "https://www.engeradios.com.br/suporte", UseShellExecute = true }); }
-            catch (Exception ex) { MessageBox.Show($"Não foi possível abrir o navegador: {ex.Message}", "Erro", MessageBoxButton.OK, MessageBoxImage.Error); }
+            if (_nivelAcessoUsuario != "Administrador")
+            {
+                MessageBox.Show("Acesso Negado! Apenas Administradores podem gerir utilizadores.", "Segurança", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            CadastroUsuariosWindow telaCadastro = new(_nomeUsuarioLogado) { Owner = this };
+            telaCadastro.ShowDialog();
         }
+
+        private void MenuLogs_Click(object sender, RoutedEventArgs e)
+        {
+            AuditoriaWindow t = new() { Owner = this };
+            t.ShowDialog();
+        }
+
+        private void MenuAtualizar_Click(object sender, RoutedEventArgs e)
+        {
+            AtualizacaoWindow telaUpdate = new() { Owner = this };
+            telaUpdate.ShowDialog();
+        }
+
+        private void MenuRemoto_Click(object sender, RoutedEventArgs e) { MessageBox.Show("Iniciando módulo de conexão remota...", "Suporte", MessageBoxButton.OK, MessageBoxImage.Information); }
+
+        private void MenuSuporte_Click(object sender, RoutedEventArgs e) { try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = "https://www.engeradios.com.br/suporte", UseShellExecute = true }); } catch { } }
     }
 }

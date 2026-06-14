@@ -1,22 +1,28 @@
-﻿using System;
+﻿// Caminho do arquivo: Engeradios.Desktop/Services/AudioRecorderService.cs
+
+using System;
 using System.IO;
 using NAudio.Wave;
+using Engeradios.Desktop.Models;
 
 namespace Engeradios.Desktop.Services
 {
     public class AudioRecorderService
     {
-        // O '= null!' diz ao .NET que estas variáveis vão ser instanciadas depois
         private WaveInEvent _waveIn = null!;
         private WaveFileWriter _writer = null!;
         private string _arquivoAtual = string.Empty;
         private string _pastaDestino;
         private bool _estaGravando = false;
+
         private DateTime _ultimoMomentoComSom;
+        private DateTime _dataHoraInicioGravacao;
 
         public float Sensibilidade { get; set; } = 0.05f;
         public string NomeDoCanal { get; set; } = "Canal";
         public int SegundosDeEspera { get; set; } = 3;
+
+        public event EventHandler<RegistoAudio>? GravacaoFinalizada;
 
         public AudioRecorderService(string pastaDestino)
         {
@@ -29,31 +35,35 @@ namespace Engeradios.Desktop.Services
 
         public void IniciarEscuta(int deviceNumber = 0)
         {
-            _waveIn = new WaveInEvent();
-            _waveIn.DeviceNumber = deviceNumber;
-            _waveIn.WaveFormat = new WaveFormat(8000, 1);
-
-            // Ligamos o evento ao método abaixo
-            _waveIn.DataAvailable += AoReceberDadosDeAudio;
-            _waveIn.StartRecording();
+            try
+            {
+                _waveIn = new WaveInEvent();
+                _waveIn.DeviceNumber = deviceNumber;
+                _waveIn.WaveFormat = new WaveFormat(8000, 1);
+                _waveIn.DataAvailable += AoReceberDadosDeAudio;
+                _waveIn.StartRecording();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Erro ao iniciar dispositivo {deviceNumber}: {ex.Message}");
+            }
         }
 
         public void PararEscuta()
         {
-            if (_waveIn != null!)
+            if (_estaGravando)
             {
-                _waveIn.StopRecording();
+                PararGravacaoAtual();
+            }
+
+            if (_waveIn != null)
+            {
+                try { _waveIn.StopRecording(); } catch { }
                 _waveIn.Dispose();
                 _waveIn = null!;
             }
-            if (_writer != null!)
-            {
-                _writer.Dispose();
-                _writer = null!;
-            }
         }
 
-        // CORREÇÃO: O object? diz que o sender pode vir nulo por baixo dos panos (padrão C# 10)
         private void AoReceberDadosDeAudio(object? sender, WaveInEventArgs e)
         {
             float max = 0;
@@ -77,7 +87,14 @@ namespace Engeradios.Desktop.Services
 
             if (_estaGravando)
             {
-                _writer.Write(e.Buffer, 0, e.BytesRecorded);
+                try
+                {
+                    _writer?.Write(e.Buffer, 0, e.BytesRecorded);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Erro ao escrever áudio: {ex.Message}");
+                }
 
                 if ((DateTime.Now - _ultimoMomentoComSom).TotalSeconds > SegundosDeEspera)
                 {
@@ -88,18 +105,51 @@ namespace Engeradios.Desktop.Services
 
         private void IniciarNovoArquivoDeAudio()
         {
-            string nomeArquivo = $"Gravação_{NomeDoCanal}_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.wav";
-            _arquivoAtual = Path.Combine(_pastaDestino, nomeArquivo);
-            _writer = new WaveFileWriter(_arquivoAtual, _waveIn.WaveFormat);
-            _estaGravando = true;
+            try
+            {
+                _dataHoraInicioGravacao = DateTime.Now;
+
+                // CORREÇÃO: Adicionados os milissegundos (_fff) e um identificador aleatório de 4 letras para eliminar colisões.
+                string uid = Guid.NewGuid().ToString("N").Substring(0, 4).ToUpper();
+                string nomeArquivo = $"Gravação_{NomeDoCanal}_{_dataHoraInicioGravacao:yyyy-MM-dd_HH-mm-ss_fff}_{uid}.wav";
+
+                _arquivoAtual = Path.Combine(_pastaDestino, nomeArquivo);
+                _writer = new WaveFileWriter(_arquivoAtual, _waveIn.WaveFormat);
+                _estaGravando = true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Erro crítico ao criar ficheiro de áudio: {ex.Message}");
+            }
         }
 
         private void PararGravacaoAtual()
         {
-            if (_writer != null!)
+            if (_writer != null)
             {
-                _writer.Dispose();
-                _writer = null!;
+                try
+                {
+                    _writer.Dispose();
+                }
+                catch { }
+                finally
+                {
+                    _writer = null!;
+                }
+
+                int duracaoSegundos = (int)(DateTime.Now - _dataHoraInicioGravacao).TotalSeconds;
+
+                var registo = new RegistoAudio
+                {
+                    Canal = NomeDoCanal,
+                    DataHoraGravacao = _dataHoraInicioGravacao,
+                    CaminhoFicheiro = _arquivoAtual,
+                    DuracaoSegundos = duracaoSegundos,
+                    Anotacoes = string.Empty,
+                    SincronizadoComNuvem = false
+                };
+
+                GravacaoFinalizada?.Invoke(this, registo);
             }
             _estaGravando = false;
         }
