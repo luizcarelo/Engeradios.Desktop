@@ -1,0 +1,14 @@
+﻿<Window x:Class="Engeradios.Desktop.AuditoriaWindow"
+        Title="Auditoria de Sistema" Height="400" Width="600"
+        Background="#1E1E1E" WindowStartupLocation="CenterOwner">
+    <Grid Margin="15">
+        <DataGrid x:Name="GridLogs" AutoGenerateColumns="False" Background="#2A2A2A" Foreground="White" BorderBrush="#444444">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Data" Binding="{Binding DataHora, StringFormat=\{0:dd/MM HH:mm:ss\}}" Width="120"/>
+                <DataGridTextColumn Header="Operador" Binding="{Binding Operador}" Width="100"/>
+                <DataGridTextColumn Header="Ação" Binding="{Binding Acao}" Width="*"/>
+                <DataGridTextColumn Header="Nível" Binding="{Binding Severidade}" Width="80"/>
+            </DataGrid.Columns>
+        </DataGrid>
+    </Grid>
+</Window>
