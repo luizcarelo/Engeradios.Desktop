@@ -54,7 +54,7 @@ namespace Engeradios.Desktop
                 // Guarda a nova chave de forma encriptada
                 ConfigSecurity.SalvarApiKey(novaChave);
 
-                MessageBox.Show("Ligação Estabelecida! O sistema reconheceu a chave e está agora emparelhado com a KingHost.", "Autenticação Bem Sucedida", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("Ligação Estabelecida! O sistema reconheceu a chave e está agora emparelhado com a Nuvem.", "Autenticação Bem Sucedida", MessageBoxButton.OK, MessageBoxImage.Information);
 
                 this.DialogResult = true;
                 this.Close();
@@ -93,7 +93,7 @@ namespace Engeradios.Desktop
                         return false;
                     }
 
-                    // Se não for 401 (Unauthorized), significa que a chave é válida e passou a porta da KingHost!
+                    // Se não for 401 (Unauthorized), significa que a chave é válida e passou a porta da Nuvem!
                     return true;
                 }
             }

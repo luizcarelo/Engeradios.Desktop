@@ -1,9 +1,15 @@
-﻿<Application x:Class="Engeradios.Desktop.App"
+﻿<!-- Caminho do arquivo: Engeradios.Desktop/App.xaml -->
+<Application x:Class="Engeradios.Desktop.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:local="clr-namespace:Engeradios.Desktop">
+             xmlns:helpers="clr-namespace:Engeradios.Desktop.Helpers">
+
     <Application.Resources>
-        <!-- Estilo utilitário para centrar texto na DataGrid -->
+        <!-- Injeção dos Conversores Visuales na Memória Global -->
+        <helpers:BoolToCloudConverter x:Key="BoolToCloudConverter"/>
+        <helpers:BoolToLockConverter x:Key="BoolToLockConverter"/>
+
+        <!-- Estilo utilitário para centrar texto nas tabelas -->
         <Style x:Key="CenterText" TargetType="TextBlock">
             <Setter Property="HorizontalAlignment" Value="Center"/>
         </Style>

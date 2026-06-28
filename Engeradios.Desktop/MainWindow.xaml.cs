@@ -5,14 +5,13 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using System.Collections.Generic;
 using System.Linq;
 using System.Diagnostics;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Reflection;
+using System.Windows.Data;
 using Engeradios.Desktop.Services;
 using Engeradios.Desktop.Models;
 using Engeradios.Desktop.Helpers;
@@ -58,7 +57,15 @@ namespace Engeradios.Desktop
             _pastaGravacoes = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Engeradios_Audios");
 
             if (ListaCanaisAtivos != null) ListaCanaisAtivos.ItemsSource = _listaUiCanais;
-            if (GridHistorico != null) GridHistorico.ItemsSource = ViewModel.HistoricoAudios;
+
+            // Configura o ItemsSource para apontar para a coleção da ViewModel
+            if (GridHistorico != null)
+            {
+                GridHistorico.ItemsSource = ViewModel.HistoricoAudios;
+                // Prepara a vista em memória para filtragem instantânea
+                var view = CollectionViewSource.GetDefaultView(ViewModel.HistoricoAudios);
+                if (view != null) view.Filter = FiltroEmMemoria;
+            }
 
             AplicarTema();
             ConfigurarMonitoramentoSegundoPlano();
@@ -85,7 +92,7 @@ namespace Engeradios.Desktop
                         {
                             await _databaseService.InserirRegistoAsync(registo);
                             await ViewModel.AtualizarHistoricoAsync();
-                            AplicarFiltrosLocais();
+                            AtualizarContadores();
                         });
                     };
 
@@ -105,7 +112,6 @@ namespace Engeradios.Desktop
 
         private void IniciarMonitorDeAtividade()
         {
-            // NOVO: Timer super rápido (100ms) para animação de áudio fluida a 10 FPS
             _timerAtividadeAudio = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
             _timerAtividadeAudio.Tick += (s, e) =>
             {
@@ -116,24 +122,16 @@ namespace Engeradios.Desktop
                     if (_gravadoresAtivos.TryGetValue(canalUi.NomeCanal, out var gravador))
                     {
                         float sensibilidade = gravador.Sensibilidade > 0 ? gravador.Sensibilidade : 0.05f;
-                        float pico = gravador.ObterPicoE_Resetar(); // Lê os decibéis reais da placa de som
+                        float pico = gravador.ObterPicoE_Resetar();
 
-                        // Mapeamento: O limite de gatilho (VAD) representa visualmente ~35% da barra
                         int percentualAlvo = (int)((pico / sensibilidade) * 35);
                         if (percentualAlvo > 100) percentualAlvo = 100;
 
-                        // EFEITO DE DECAY (Descida Suave): Dá um aspeto premium ao VU Meter
                         if (percentualAlvo >= canalUi.NivelSinal)
-                        {
-                            canalUi.NivelSinal = percentualAlvo; // Sobe instantaneamente aos picos
-                        }
+                            canalUi.NivelSinal = percentualAlvo;
                         else
-                        {
-                            // Desce suavemente se o som baixar
                             canalUi.NivelSinal = Math.Max(0, canalUi.NivelSinal - 12);
-                        }
 
-                        // Sincroniza o estado exato de gravação
                         if (gravador.IsRecording)
                         {
                             canalUi.StatusTexto = "GRAVANDO";
@@ -276,25 +274,56 @@ namespace Engeradios.Desktop
             }
         }
 
+        // ====================================================================
+        // GESTÃO DE PESQUISA (Escalável & Em Memória)
+        // ====================================================================
+
         private void TxtBusca_TextChanged(object sender, TextChangedEventArgs e) => AplicarFiltrosLocais();
         private void DpDataFiltro_SelectedDateChanged(object sender, SelectionChangedEventArgs e) => AplicarFiltrosLocais();
 
         private void AplicarFiltrosLocais()
         {
-            if (GridHistorico == null || TxtBusca == null || DpDataFiltro == null) return;
-            var query = _databaseService.ObterHistorico().AsQueryable();
+            if (GridHistorico == null) return;
 
-            string filtro = TxtBusca.Text.Trim();
-            if (!string.IsNullOrEmpty(filtro))
-                query = query.Where(r => (r.Canal != null && r.Canal.Contains(filtro, StringComparison.OrdinalIgnoreCase)) ||
-                                         (r.Anotacoes != null && r.Anotacoes.Contains(filtro, StringComparison.OrdinalIgnoreCase)));
-
-            if (DpDataFiltro.SelectedDate.HasValue)
-                query = query.Where(r => r.DataHoraGravacao.Date == DpDataFiltro.SelectedDate.Value.Date);
-
-            GridHistorico.ItemsSource = query.Take(150).ToList();
-            if (TxtAudiosHoje != null) TxtAudiosHoje.Text = _databaseService.ObterHistorico().Count(r => r.DataHoraGravacao.Date == DateTime.Today).ToString();
+            var view = CollectionViewSource.GetDefaultView(ViewModel.HistoricoAudios);
+            if (view != null)
+            {
+                view.Refresh(); // Força a reavaliação do filtro
+            }
+            AtualizarContadores();
         }
+
+        // Lógica de filtragem limpa e que funciona sem bater na base de dados
+        private bool FiltroEmMemoria(object item)
+        {
+            if (item is RegistoAudio r)
+            {
+                string filtro = TxtBusca?.Text.Trim() ?? string.Empty;
+                DateTime? data = DpDataFiltro?.SelectedDate;
+
+                bool passaTexto = string.IsNullOrEmpty(filtro) ||
+                                  (r.Canal != null && r.Canal.Contains(filtro, StringComparison.OrdinalIgnoreCase)) ||
+                                  (r.Anotacoes != null && r.Anotacoes.Contains(filtro, StringComparison.OrdinalIgnoreCase));
+
+                bool passaData = !data.HasValue || r.DataHoraGravacao.Date == data.Value.Date;
+
+                return passaTexto && passaData;
+            }
+            return false;
+        }
+
+        private void AtualizarContadores()
+        {
+            if (TxtAudiosHoje != null)
+            {
+                int audiosHoje = ViewModel.HistoricoAudios.Count(r => r.DataHoraGravacao.Date == DateTime.Today);
+                TxtAudiosHoje.Text = audiosHoje.ToString();
+            }
+        }
+
+        // ====================================================================
+        // MONITORAMENTO GERAL E NUVEM
+        // ====================================================================
 
         private void ConfigurarMonitoramentoSegundoPlano()
         {
@@ -311,7 +340,9 @@ namespace Engeradios.Desktop
                 string raiz = Path.GetPathRoot(_pastaGravacoes) ?? "C:\\";
                 DriveInfo disco = new(raiz);
                 double espacoUsadoGb = CalcularTamanhoPasta(_pastaGravacoes) / (1024.0 * 1024.0 * 1024.0);
-                double maxGb = 40.0;
+
+                var configGeral = ConfigService.CarregarConfiguracoesGerais() ?? new Engeradios.Desktop.Models.ConfiguracoesGerais();
+                double maxGb = configGeral.LimiteEspacoDiscoGB;
 
                 if (BarraDisco != null) { BarraDisco.Maximum = maxGb; BarraDisco.Value = espacoUsadoGb; }
                 if (TxtUsoDisco != null) TxtUsoDisco.Text = $"{espacoUsadoGb:F1} GB / {maxGb} GB";
@@ -323,7 +354,11 @@ namespace Engeradios.Desktop
 
                     GerirEspacoLocalFIFO(espacoUsadoGb, maxGb);
 
-                    if (await _cloudSyncService.SincronizarPendentesAsync() > 0) await ViewModel.AtualizarHistoricoAsync();
+                    if (await _cloudSyncService.SincronizarPendentesAsync() > 0)
+                    {
+                        await ViewModel.AtualizarHistoricoAsync();
+                        AplicarFiltrosLocais();
+                    }
                     await _cloudSyncService.SincronizarLogsAsync();
                 }
                 else if (LedNuvem != null)

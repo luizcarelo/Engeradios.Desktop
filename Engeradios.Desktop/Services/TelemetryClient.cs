@@ -13,7 +13,7 @@ namespace Engeradios.Desktop.Services
     {
         private readonly HttpClient _httpClient;
 
-        // VERIFIQUE ESTA URL: Tem de ser o caminho EXATO para o ficheiro no seu servidor KingHost
+        // VERIFIQUE ESTA URL: Tem de ser o caminho EXATO para o ficheiro no seu servidor Nuvem
         // Se não usar subdomínio, mude para: "http://www.engeradios.com.br/gravador/api/telemetria.php"
         private readonly string _apiUrl = "https://gravador.engeradios.com.br/api/telemetria.php";
 
@@ -26,7 +26,7 @@ namespace Engeradios.Desktop.Services
         {
             try
             {
-                // CORREÇÃO: O payload agora envia EXATAMENTE o que o PHP da KingHost exige.
+                // CORREÇÃO: O payload agora envia EXATAMENTE o que o PHP da Nuvem exige.
                 var payload = new
                 {
                     action = "heartbeat", // OBRIGATÓRIO: O PHP rejeita o pedido se não tiver esta ação
@@ -53,7 +53,7 @@ namespace Engeradios.Desktop.Services
                 if (!response.IsSuccessStatusCode)
                 {
                     string erroDoServidor = await response.Content.ReadAsStringAsync();
-                    Debug.WriteLine($"[ERRO NUVEM] O servidor KingHost respondeu com o Código {response.StatusCode}: {erroDoServidor}");
+                    Debug.WriteLine($"[ERRO NUVEM] O servidor Nuvem respondeu com o Código {response.StatusCode}: {erroDoServidor}");
                     return; // Sai da função sem gerar exceção fatal
                 }
 

@@ -119,7 +119,7 @@
         <Menu x:Name="MenuSuperior" DockPanel.Dock="Top" Background="White" Padding="5">
             <MenuItem Header="Sistema" FontSize="14">
                 <MenuItem Header="Configurações (Admin)" Click="MenuConfig_Click" />
-                <MenuItem Header="Gestão de Nuvem (KingHost)" Click="MenuNuvem_Click" />
+                <MenuItem Header="Gestão de Nuvem" Click="MenuNuvem_Click" />
                 <Separator/>
                 <MenuItem Header="Sair" Click="BtnPararEmergencia_Click" />
             </MenuItem>
@@ -149,7 +149,7 @@
                 <Image x:Name="ImgLogoPrincipal" Source="logo_claro.png" Height="40" Margin="0,0,15,0" RenderOptions.BitmapScalingMode="HighQuality"/>
 
                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                    <TextBlock Text="C3 | CENTRO DE COMANDO" FontSize="20" FontWeight="Bold" Foreground="#323130"/>
+                    <TextBlock Text="CENTRO DE GRAVAÇÃO - ENGERADIOS" FontSize="20" FontWeight="Bold" Foreground="#323130"/>
                     <TextBlock Text="Sistema de Gravação Automática de Rádio-Comunicações" FontSize="12" Foreground="#605E5C"/>
                 </StackPanel>
 
@@ -240,7 +240,7 @@
 
                     <Border x:Name="Card2" Style="{StaticResource CardStyle}">
                         <StackPanel>
-                            <TextBlock Text="CLOUD SYNC (KINGHOST)" FontSize="11" Foreground="#605E5C" FontWeight="Bold"/>
+                            <TextBlock Text="CLOUD SYNC" FontSize="11" Foreground="#605E5C" FontWeight="Bold"/>
                             <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                                 <Ellipse x:Name="LedNuvem" Width="14" Height="14" Fill="Orange" Margin="0,0,8,0"/>
                                 <TextBlock x:Name="TxtEstadoNuvem" Text="A Verificar..." FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>

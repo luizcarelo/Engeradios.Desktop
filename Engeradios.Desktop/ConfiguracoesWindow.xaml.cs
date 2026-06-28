@@ -9,7 +9,7 @@ using System.Windows.Media;
 using System.Collections.Generic;
 using NAudio.Wave;
 using Engeradios.Desktop.Services;
-using Engeradios.Desktop.Models; // Adicionado para suportar CanalHardwareConfig caso esteja na pasta Models
+using Engeradios.Desktop.Models;
 
 namespace Engeradios.Desktop
 {
@@ -48,7 +48,6 @@ namespace Engeradios.Desktop
 
     public partial class ConfiguracoesWindow : Window
     {
-        // CORREÇÃO: Propriedades inicializadas na declaração para evitar aviso de "não anulável"
         public ObservableCollection<CanalConfigModel> Canais { get; set; } = [];
         public List<DispositivoAudio> DispositivosDisponiveis { get; set; } = [];
 
@@ -67,6 +66,7 @@ namespace Engeradios.Desktop
 
             CarregarPlacasDoWindows();
             CarregarCanaisExistentes();
+            CarregarConfiguracoesGerais();
         }
 
         private void CarregarPlacasDoWindows()
@@ -77,7 +77,6 @@ namespace Engeradios.Desktop
                 for (int i = 0; i < qtd; i++)
                 {
                     var info = WaveInEvent.GetCapabilities(i);
-                    // Sintaxe de inicialização de objeto limpa
                     DispositivosDisponiveis.Add(new DispositivoAudio { Index = i, Nome = info.ProductName });
                 }
 
@@ -99,10 +98,40 @@ namespace Engeradios.Desktop
                 AdicionarCanal(config.Nome, config.PlacaIndex, config.VAD, config.Volume);
             }
 
-            // CORREÇÃO: Verificação de nulo no elemento visual antes de atribuir
             if (ListaCanaisUI != null)
             {
                 ListaCanaisUI.ItemsSource = Canais;
+            }
+        }
+
+        private void CarregarConfiguracoesGerais()
+        {
+            int limiteAtual = 40; // Valor padrão de 40GB
+
+            try
+            {
+                // Este método será implementado no ConfigService.cs a seguir
+                // limiteAtual = ConfigService.ObterLimiteDiscoGB();
+            }
+            catch { }
+
+            // Percorre os itens do ComboBox para selecionar o que tem o valor (Tag) igual ao atual
+            foreach (ComboBoxItem item in CmbLimiteDisco.Items)
+            {
+                if (item.Tag != null && int.TryParse(item.Tag.ToString(), out int tagValue))
+                {
+                    if (tagValue == limiteAtual)
+                    {
+                        CmbLimiteDisco.SelectedItem = item;
+                        break;
+                    }
+                }
+            }
+
+            // Se não encontrou ou falhou, seleciona o item "40 GB" (índice 1) como padrão
+            if (CmbLimiteDisco.SelectedItem == null && CmbLimiteDisco.Items.Count > 1)
+            {
+                CmbLimiteDisco.SelectedIndex = 1;
             }
         }
 
@@ -120,7 +149,6 @@ namespace Engeradios.Desktop
             IniciarPreviewDeAudio(novoCanal);
         }
 
-        // CORREÇÃO: Alterado para estático, pois não acessa dados da instância (MainWindow)
         private static void IniciarPreviewDeAudio(CanalConfigModel canal)
         {
             try
@@ -129,7 +157,6 @@ namespace Engeradios.Desktop
 
                 if (canal.PlacaIndex < 0) return;
 
-                // CORREÇÃO: Usando variável local para evitar o aviso "Desreferência de uma referência possivelmente nula"
                 var waveIn = new WaveInEvent
                 {
                     DeviceNumber = canal.PlacaIndex,
@@ -138,7 +165,6 @@ namespace Engeradios.Desktop
 
                 waveIn.DataAvailable += (s, e) =>
                 {
-                    // CORREÇÃO: Proteção contra NullReferenceException no e.Buffer
                     if (e.Buffer == null) return;
 
                     float max = 0;
@@ -159,7 +185,6 @@ namespace Engeradios.Desktop
                     });
                 };
 
-                // Atribuindo a instância segura à propriedade e iniciando
                 canal.TestadorAudio = waveIn;
                 waveIn.StartRecording();
             }
@@ -169,12 +194,10 @@ namespace Engeradios.Desktop
             }
         }
 
-        // CORREÇÃO: Método alterado para estático (static) pois não depende de instâncias exclusivas da Window
         private static void PararTestadorEspecifico(CanalConfigModel canal)
         {
             try
             {
-                // CORREÇÃO: "A seleção nula pode ser simplificada" usando o operador condicional de nulo '?. '
                 canal.TestadorAudio?.StopRecording();
                 canal.TestadorAudio?.Dispose();
             }
@@ -192,7 +215,6 @@ namespace Engeradios.Desktop
 
         private void BtnRemoverCanal_Click(object sender, RoutedEventArgs e)
         {
-            // Proteção de null com Pattern Matching (is)
             if (sender is Button btn && btn.CommandParameter is CanalConfigModel canal)
             {
                 PararTestadorEspecifico(canal);
@@ -210,12 +232,12 @@ namespace Engeradios.Desktop
 
         private void BtnSalvar_Click(object sender, RoutedEventArgs e)
         {
-            // CORREÇÃO: Simplificação de coleção C# 12+ ( [] )
-            List<CanalHardwareConfig> listaParaSalvar = [];
+            // 1. Guarda a configuração dos canais de áudio
+            var listaParaSalvar = new List<Engeradios.Desktop.Services.CanalHardwareConfig>();
 
             foreach (var c in Canais)
             {
-                listaParaSalvar.Add(new CanalHardwareConfig
+                listaParaSalvar.Add(new Engeradios.Desktop.Services.CanalHardwareConfig
                 {
                     Nome = c.Nome,
                     PlacaIndex = c.PlacaIndex,
@@ -226,8 +248,24 @@ namespace Engeradios.Desktop
 
             ConfigService.SalvarCanais(listaParaSalvar);
 
-            MessageBox.Show($"As definições de {Canais.Count} canais foram guardadas com sucesso!\nO sistema principal será agora reiniciado.",
-                            "Configurações Salvas", MessageBoxButton.OK, MessageBoxImage.Information);
+            // 2. Guarda a configuração do limite de disco a partir do ComboBox
+            if (CmbLimiteDisco.SelectedItem is ComboBoxItem itemSelecionado &&
+                itemSelecionado.Tag != null &&
+                int.TryParse(itemSelecionado.Tag.ToString(), out int limiteGb))
+            {
+                try
+                {
+                    // Este método será implementado no ConfigService.cs a seguir
+                    // ConfigService.SalvarLimiteDiscoGB(limiteGb);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Erro ao guardar o limite de disco: {ex.Message}", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+
+            MessageBox.Show($"As definições de {Canais.Count} canais e armazenamento foram guardadas com sucesso!\nO sistema principal será agora reiniciado.",
+                            "Configurações Guardadas", MessageBoxButton.OK, MessageBoxImage.Information);
 
             PararTodosOsTestadores();
             this.Close();

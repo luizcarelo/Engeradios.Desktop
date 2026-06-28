@@ -195,6 +195,18 @@ namespace Engeradios.Desktop.Services
             command.ExecuteNonQuery();
         }
 
+        // NOVO: Permite atualizar a palavra-passe (Crucial para o Setup de 1º Uso)
+        public void AtualizarSenhaUsuario(string username, string novaSenha)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            var command = connection.CreateCommand();
+            command.CommandText = "UPDATE Usuarios SET Password = $pass WHERE Username = $user;";
+            command.Parameters.AddWithValue("$pass", GerarHashSenha(novaSenha));
+            command.Parameters.AddWithValue("$user", username);
+            command.ExecuteNonQuery();
+        }
+
         public void AtualizarAnotacao(int id, string anotacao)
         {
             using var connection = new SqliteConnection(_connectionString);
