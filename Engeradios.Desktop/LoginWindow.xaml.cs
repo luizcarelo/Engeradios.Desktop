@@ -55,14 +55,21 @@ namespace Engeradios.Desktop
         {
             var usuarios = _databaseService.ObterUsuarios();
 
-            if (usuarios.Count == 0 ||
-                (usuarios.Count == 1 &&
-                 usuarios[0].Username == "admin" &&
-                 _databaseService.ValidarLogin("admin", "admin") == "Administrador"))
+            bool bancoSemUsuarios = usuarios.Count == 0;
+
+            bool adminPadraoFase1 =
+                usuarios.Count == 1 &&
+                usuarios[0].Username == "admin" &&
+                _databaseService.ValidarLogin("admin", "admin") == "Administrador";
+
+            if (bancoSemUsuarios || adminPadraoFase1)
             {
                 _modoPrimeiroUso = true;
 
-                TxtSubtitulo.Text = "Configuração Inicial: Defina a senha do Administrador";
+                TxtSubtitulo.Text = bancoSemUsuarios
+                    ? "Primeira instalação: crie a senha do Administrador"
+                    : "Configuração Inicial: altere a senha do Administrador";
+
                 TxtUsuario.Text = "admin";
                 TxtUsuario.IsEnabled = false;
                 LblUsuario.Text = "Utilizador (Administrador Principal)";
@@ -156,10 +163,29 @@ namespace Engeradios.Desktop
                 return;
             }
 
-            bool senhaAtualizada = _databaseService.AtualizarSenhaUsuario("admin", novaSenha);
-            if (!senhaAtualizada)
+            var usuarios = _databaseService.ObterUsuarios();
+
+            bool operacaoConcluida;
+
+            if (usuarios.Count == 0)
             {
-                MostrarErro("Não foi possível atualizar a senha do administrador.");
+                operacaoConcluida = _databaseService.CriarPrimeiroAdministrador("admin", novaSenha);
+            }
+            else if (usuarios.Count == 1 &&
+                     usuarios[0].Username == "admin" &&
+                     _databaseService.ValidarLogin("admin", "admin") == "Administrador")
+            {
+                operacaoConcluida = _databaseService.AtualizarSenhaUsuario("admin", novaSenha);
+            }
+            else
+            {
+                MostrarErro("A configuração inicial não pode ser executada porque já existem usuários cadastrados.");
+                return;
+            }
+
+            if (!operacaoConcluida)
+            {
+                MostrarErro("Não foi possível configurar a senha do administrador.");
                 return;
             }
 
@@ -174,7 +200,7 @@ namespace Engeradios.Desktop
             NivelDeAcesso = nivel;
 
             MessageBox.Show(
-                "Senha do administrador configurada com sucesso.",
+                "Administrador configurado com sucesso.",
                 "Primeira configuração concluída",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
