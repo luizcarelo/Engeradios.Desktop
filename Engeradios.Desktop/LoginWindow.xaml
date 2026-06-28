@@ -3,7 +3,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Name="JanelaLogin"
-        Title="Engeradios C3 - Login" Height="450" Width="400"
+        Title="Engeradios Gravador - Login" Height="450" Width="400"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
         AllowsTransparency="True"

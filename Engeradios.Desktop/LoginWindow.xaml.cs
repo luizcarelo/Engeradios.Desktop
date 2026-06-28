@@ -31,7 +31,7 @@ namespace Engeradios.Desktop
             // Verificação de Segurança 1: Exigir Elevação do Windows
             if (!IsAdministrator())
             {
-                MessageBox.Show("Por favor, execute o Engeradios C3 como Administrador para garantir o acesso correto ao hardware de áudio e proteção de gravações.",
+                MessageBox.Show("Por favor, execute o Engeradios Gravador como Administrador para garantir o acesso correto ao hardware de áudio e proteção de gravações.",
                                 "Privilégios Insuficientes", MessageBoxButton.OK, MessageBoxImage.Warning);
                 // Idealmente, a app deveria fechar aqui, mas deixamos continuar para testes em dev.
                 // Na versão final, descomente a linha abaixo:
