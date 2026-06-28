@@ -9,6 +9,7 @@ using System.Windows.Media;
 using System.Collections.Generic;
 using NAudio.Wave;
 using Engeradios.Desktop.Services;
+using Engeradios.Desktop.Models; // Adicionado para suportar CanalHardwareConfig caso esteja na pasta Models
 
 namespace Engeradios.Desktop
 {
@@ -47,8 +48,9 @@ namespace Engeradios.Desktop
 
     public partial class ConfiguracoesWindow : Window
     {
-        public ObservableCollection<CanalConfigModel> Canais { get; set; }
-        public List<DispositivoAudio> DispositivosDisponiveis { get; set; }
+        // CORREÇÃO: Propriedades inicializadas na declaração para evitar aviso de "não anulável"
+        public ObservableCollection<CanalConfigModel> Canais { get; set; } = [];
+        public List<DispositivoAudio> DispositivosDisponiveis { get; set; } = [];
 
         public ConfiguracoesWindow(bool isAuthenticated = false)
         {
@@ -60,9 +62,6 @@ namespace Engeradios.Desktop
             }
 
             InitializeComponent();
-
-            Canais = new ObservableCollection<CanalConfigModel>();
-            DispositivosDisponiveis = new List<DispositivoAudio>();
 
             this.DataContext = this;
 
@@ -78,6 +77,7 @@ namespace Engeradios.Desktop
                 for (int i = 0; i < qtd; i++)
                 {
                     var info = WaveInEvent.GetCapabilities(i);
+                    // Sintaxe de inicialização de objeto limpa
                     DispositivosDisponiveis.Add(new DispositivoAudio { Index = i, Nome = info.ProductName });
                 }
 
@@ -99,7 +99,11 @@ namespace Engeradios.Desktop
                 AdicionarCanal(config.Nome, config.PlacaIndex, config.VAD, config.Volume);
             }
 
-            ListaCanaisUI.ItemsSource = Canais;
+            // CORREÇÃO: Verificação de nulo no elemento visual antes de atribuir
+            if (ListaCanaisUI != null)
+            {
+                ListaCanaisUI.ItemsSource = Canais;
+            }
         }
 
         private void AdicionarCanal(string nome, int placaPadrao, float vad = 0.05f, float volume = 1.0f)
@@ -116,7 +120,8 @@ namespace Engeradios.Desktop
             IniciarPreviewDeAudio(novoCanal);
         }
 
-        private void IniciarPreviewDeAudio(CanalConfigModel canal)
+        // CORREÇÃO: Alterado para estático, pois não acessa dados da instância (MainWindow)
+        private static void IniciarPreviewDeAudio(CanalConfigModel canal)
         {
             try
             {
@@ -124,12 +129,18 @@ namespace Engeradios.Desktop
 
                 if (canal.PlacaIndex < 0) return;
 
-                canal.TestadorAudio = new WaveInEvent();
-                canal.TestadorAudio.DeviceNumber = canal.PlacaIndex;
-                canal.TestadorAudio.WaveFormat = new WaveFormat(8000, 1);
-
-                canal.TestadorAudio.DataAvailable += (s, e) =>
+                // CORREÇÃO: Usando variável local para evitar o aviso "Desreferência de uma referência possivelmente nula"
+                var waveIn = new WaveInEvent
                 {
+                    DeviceNumber = canal.PlacaIndex,
+                    WaveFormat = new WaveFormat(8000, 1)
+                };
+
+                waveIn.DataAvailable += (s, e) =>
+                {
+                    // CORREÇÃO: Proteção contra NullReferenceException no e.Buffer
+                    if (e.Buffer == null) return;
+
                     float max = 0;
                     for (int index = 0; index < e.BytesRecorded; index += 2)
                     {
@@ -148,7 +159,9 @@ namespace Engeradios.Desktop
                     });
                 };
 
-                canal.TestadorAudio.StartRecording();
+                // Atribuindo a instância segura à propriedade e iniciando
+                canal.TestadorAudio = waveIn;
+                waveIn.StartRecording();
             }
             catch (Exception)
             {
@@ -156,20 +169,19 @@ namespace Engeradios.Desktop
             }
         }
 
-        private void PararTestadorEspecifico(CanalConfigModel canal)
+        // CORREÇÃO: Método alterado para estático (static) pois não depende de instâncias exclusivas da Window
+        private static void PararTestadorEspecifico(CanalConfigModel canal)
         {
-            if (canal.TestadorAudio != null)
+            try
             {
-                try
-                {
-                    canal.TestadorAudio.StopRecording();
-                    canal.TestadorAudio.Dispose();
-                }
-                catch { }
-                finally
-                {
-                    canal.TestadorAudio = null;
-                }
+                // CORREÇÃO: "A seleção nula pode ser simplificada" usando o operador condicional de nulo '?. '
+                canal.TestadorAudio?.StopRecording();
+                canal.TestadorAudio?.Dispose();
+            }
+            catch { }
+            finally
+            {
+                canal.TestadorAudio = null;
             }
         }
 
@@ -180,6 +192,7 @@ namespace Engeradios.Desktop
 
         private void BtnRemoverCanal_Click(object sender, RoutedEventArgs e)
         {
+            // Proteção de null com Pattern Matching (is)
             if (sender is Button btn && btn.CommandParameter is CanalConfigModel canal)
             {
                 PararTestadorEspecifico(canal);
@@ -197,7 +210,9 @@ namespace Engeradios.Desktop
 
         private void BtnSalvar_Click(object sender, RoutedEventArgs e)
         {
-            var listaParaSalvar = new List<CanalHardwareConfig>();
+            // CORREÇÃO: Simplificação de coleção C# 12+ ( [] )
+            List<CanalHardwareConfig> listaParaSalvar = [];
+
             foreach (var c in Canais)
             {
                 listaParaSalvar.Add(new CanalHardwareConfig

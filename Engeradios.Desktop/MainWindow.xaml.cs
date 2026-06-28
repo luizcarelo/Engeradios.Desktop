@@ -9,15 +9,30 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using System.Collections.Generic;
 using System.Linq;
+using System.Diagnostics;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Reflection;
 using Engeradios.Desktop.Services;
 using Engeradios.Desktop.Models;
 using Engeradios.Desktop.Helpers;
+using Engeradios.Desktop.ViewModels;
 
 namespace Engeradios.Desktop
 {
+    public class UIStatusCanal : INotifyPropertyChanged
+    {
+        public string NomeCanal { get; set; } = string.Empty;
+        private int _nivelSinal; public int NivelSinal { get => _nivelSinal; set { _nivelSinal = value; OnPropertyChanged(nameof(NivelSinal)); } }
+        private string _statusTexto = "AGUARDANDO"; public string StatusTexto { get => _statusTexto; set { _statusTexto = value; OnPropertyChanged(nameof(StatusTexto)); } }
+        private Brush _corAtividade = Brushes.Gray; public Brush CorAtividade { get => _corAtividade; set { _corAtividade = value; OnPropertyChanged(nameof(CorAtividade)); } }
+        public event PropertyChangedEventHandler? PropertyChanged; protected void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+
     public partial class MainWindow : Window
     {
-        private readonly Dictionary<string, AudioRecorderService> _gravadoresAtivos = [];
+        private readonly Dictionary<string, AudioRecorderService> _gravadoresAtivos = new();
+        private readonly ObservableCollection<UIStatusCanal> _listaUiCanais = new();
 
         private readonly DatabaseService _databaseService;
         private readonly TelemetryClient _telemetryClient;
@@ -25,43 +40,30 @@ namespace Engeradios.Desktop
         private readonly CloudSyncService _cloudSyncService;
 
         private readonly string _pastaGravacoes;
-
         private DispatcherTimer _timerMonitoramento = null!;
-        private DispatcherTimer _timerEspectro = null!;
-        private readonly Random _random = new();
+        private DispatcherTimer _timerAtividadeAudio = null!;
 
-        private List<RegistoAudio> _todosOsRegistos = [];
+        public MainViewModel ViewModel => (MainViewModel)this.DataContext!;
 
-        private readonly string _nivelAcessoUsuario;
-        private readonly string _nomeUsuarioLogado;
-        private bool _isTemaEscuro;
-
-        public MainWindow(string nomeUsuario = "Administrador Local", string nivelAcesso = "Administrador", bool temaEscuro = true)
+        public MainWindow(MainViewModel viewModel, DatabaseService databaseService, TelemetryClient telemetryClient, LogService logService, CloudSyncService cloudSyncService)
         {
             InitializeComponent();
+            this.DataContext = viewModel;
 
-            _nomeUsuarioLogado = nomeUsuario;
-            _nivelAcessoUsuario = nivelAcesso;
-            _isTemaEscuro = temaEscuro;
-
-            // Correção IDE0031: Null propagation
-            if (TxtOperadorLogado != null) TxtOperadorLogado.Text = _nomeUsuarioLogado;
+            _databaseService = databaseService;
+            _telemetryClient = telemetryClient;
+            _logService = logService;
+            _cloudSyncService = cloudSyncService;
 
             _pastaGravacoes = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Engeradios_Audios");
 
-            _databaseService = new();
-            _telemetryClient = new();
-            _logService = new();
-            _cloudSyncService = new();
+            if (ListaCanaisAtivos != null) ListaCanaisAtivos.ItemsSource = _listaUiCanais;
+            if (GridHistorico != null) GridHistorico.ItemsSource = ViewModel.HistoricoAudios;
 
-            AtualizarHistorico();
             AplicarTema();
             ConfigurarMonitoramentoSegundoPlano();
-
             IniciarGravacaoAutomatica();
-            IniciarAnimacaoEspectro();
-
-            _logService.Registar(_nomeUsuarioLogado, "Iniciou o Centro de Comando C3");
+            IniciarMonitorDeAtividade();
         }
 
         private void IniciarGravacaoAutomatica()
@@ -69,131 +71,186 @@ namespace Engeradios.Desktop
             try
             {
                 _gravadoresAtivos.Clear();
+                _listaUiCanais.Clear();
 
                 var canaisConfigurados = ConfigService.CarregarCanais();
                 int numPlacasDisponiveis = NAudio.Wave.WaveInEvent.DeviceCount;
 
                 foreach (var config in canaisConfigurados)
                 {
-                    // Correção IDE0017: Object Initialization
-                    var gravador = new AudioRecorderService(_pastaGravacoes)
+                    var gravador = new AudioRecorderService(_pastaGravacoes) { Sensibilidade = config.VAD, NomeDoCanal = config.Nome };
+                    gravador.GravacaoFinalizada += async (sender, registo) =>
                     {
-                        Sensibilidade = config.VAD,
-                        NomeDoCanal = config.Nome
-                    };
-
-                    gravador.GravacaoFinalizada += (sender, registo) =>
-                    {
-                        Application.Current.Dispatcher.InvokeAsync(() =>
+                        await Application.Current.Dispatcher.InvokeAsync(async () =>
                         {
-                            _databaseService.InserirRegisto(registo);
-                            AtualizarHistorico();
+                            await _databaseService.InserirRegistoAsync(registo);
+                            await ViewModel.AtualizarHistoricoAsync();
+                            AplicarFiltrosLocais();
                         });
                     };
 
                     int placaID = config.PlacaIndex < numPlacasDisponiveis ? config.PlacaIndex : 0;
-
                     gravador.IniciarEscuta(placaID);
                     _gravadoresAtivos.Add(config.Nome, gravador);
+                    _listaUiCanais.Add(new UIStatusCanal { NomeCanal = config.Nome });
                 }
 
-                TxtCanaisAtivos.Text = $"{canaisConfigurados.Count} Canais em Monitorização";
-                LedGravando.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CC0000"));
-                TxtGravando.Text = "GRAVAÇÃO ATIVA";
-                TxtGravando.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CC0000"));
-                BtnPararEmergencia.Content = "PARAR MOTORES (EMERGÊNCIA)";
+                if (TxtCanaisAtivos != null) TxtCanaisAtivos.Text = $"{canaisConfigurados.Count} Canais Alocados";
+                if (LedGravando != null) LedGravando.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CC0000"));
+                if (TxtGravando != null) { TxtGravando.Text = "SISTEMA ARMADO"; TxtGravando.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CC0000")); }
+                if (BtnPararEmergencia != null) BtnPararEmergencia.Content = "PARAR MOTORES (EMERGÊNCIA)";
             }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Erro ao iniciar os motores de áudio: {ex.Message}", "Erro", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+            catch (Exception ex) { MessageBox.Show($"Erro: {ex.Message}"); }
         }
 
-        private void IniciarAnimacaoEspectro()
+        private void IniciarMonitorDeAtividade()
         {
-            _timerEspectro = new() { Interval = TimeSpan.FromMilliseconds(120) };
-            _timerEspectro.Tick += (s, e) =>
+            // NOVO: Timer super rápido (100ms) para animação de áudio fluida a 10 FPS
+            _timerAtividadeAudio = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+            _timerAtividadeAudio.Tick += (s, e) =>
             {
-                BarraA1.Height = _random.Next(5, 45);
-                BarraA2.Height = _random.Next(10, 60);
-                BarraA3.Height = _random.Next(5, 40);
-                BarraA4.Height = _random.Next(20, 60);
-                BarraA5.Height = _random.Next(5, 50);
-                BarraA6.Height = _random.Next(15, 60);
-                BarraA7.Height = _random.Next(5, 40);
+                if (_gravadoresAtivos.Count == 0) return;
 
-                LedGravando.Opacity = _gravadoresAtivos.Count > 0 && LedGravando.Opacity == 1 ? 0.3 : 1;
+                foreach (var canalUi in _listaUiCanais)
+                {
+                    if (_gravadoresAtivos.TryGetValue(canalUi.NomeCanal, out var gravador))
+                    {
+                        float sensibilidade = gravador.Sensibilidade > 0 ? gravador.Sensibilidade : 0.05f;
+                        float pico = gravador.ObterPicoE_Resetar(); // Lê os decibéis reais da placa de som
+
+                        // Mapeamento: O limite de gatilho (VAD) representa visualmente ~35% da barra
+                        int percentualAlvo = (int)((pico / sensibilidade) * 35);
+                        if (percentualAlvo > 100) percentualAlvo = 100;
+
+                        // EFEITO DE DECAY (Descida Suave): Dá um aspeto premium ao VU Meter
+                        if (percentualAlvo >= canalUi.NivelSinal)
+                        {
+                            canalUi.NivelSinal = percentualAlvo; // Sobe instantaneamente aos picos
+                        }
+                        else
+                        {
+                            // Desce suavemente se o som baixar
+                            canalUi.NivelSinal = Math.Max(0, canalUi.NivelSinal - 12);
+                        }
+
+                        // Sincroniza o estado exato de gravação
+                        if (gravador.IsRecording)
+                        {
+                            canalUi.StatusTexto = "GRAVANDO";
+                            canalUi.CorAtividade = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CC0000"));
+                        }
+                        else
+                        {
+                            canalUi.StatusTexto = "AGUARDANDO";
+                            canalUi.CorAtividade = Brushes.Gray;
+                        }
+                    }
+                }
             };
-            _timerEspectro.Start();
+            _timerAtividadeAudio.Start();
         }
 
-        private void AtualizarHistorico()
+        private void Window_Closing(object sender, CancelEventArgs e)
         {
-            if (_databaseService != null && GridHistorico != null)
+            if (ViewModel.NivelAcessoUsuario == "Operador" && !MostrarPromptSenhaAdmin()) { e.Cancel = true; return; }
+            foreach (var canal in _gravadoresAtivos.Values) canal.PararEscuta();
+        }
+
+        private bool MostrarPromptSenhaAdmin()
+        {
+            bool senhaCorreta = false;
+            Window prompt = new() { Width = 350, Height = 250, Title = "Autorização de Saída", WindowStartupLocation = WindowStartupLocation.CenterOwner, ResizeMode = ResizeMode.NoResize, Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E")), Owner = this, WindowStyle = WindowStyle.ToolWindow };
+            StackPanel painel = new() { Margin = new Thickness(20) };
+            TextBox txtUser = new() { Padding = new Thickness(5), FontSize = 14, Margin = new Thickness(0, 0, 0, 10) };
+            PasswordBox pwdBox = new() { Padding = new Thickness(5), FontSize = 14, Margin = new Thickness(0, 0, 0, 20) };
+            Button btnOk = new() { Content = "AUTORIZAR SAÍDA", Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CC0000")), Foreground = Brushes.White, Height = 35, FontWeight = FontWeights.Bold, Cursor = System.Windows.Input.Cursors.Hand };
+
+            btnOk.Click += (s, ev) => {
+                if (_databaseService.ValidarLogin(txtUser.Text, pwdBox.Password) == "Administrador") { senhaCorreta = true; prompt.Close(); }
+                else { MessageBox.Show("Acesso negado!", "Erro", MessageBoxButton.OK, MessageBoxImage.Error); pwdBox.Clear(); }
+            };
+
+            painel.Children.Add(new TextBlock { Text = "Acesso Restrito", Foreground = Brushes.White, FontSize = 18, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 10) });
+            painel.Children.Add(txtUser); painel.Children.Add(pwdBox); painel.Children.Add(btnOk);
+            prompt.Content = painel; prompt.ShowDialog();
+
+            return senhaCorreta;
+        }
+
+        private void MenuConfig_Click(object sender, RoutedEventArgs e)
+        {
+            if (ViewModel.NivelAcessoUsuario != "Administrador") { MessageBox.Show("Acesso Negado!", "Segurança", MessageBoxButton.OK, MessageBoxImage.Error); return; }
+            foreach (var canal in _gravadoresAtivos.Values) canal.PararEscuta();
+            _gravadoresAtivos.Clear();
+
+            ConfiguracoesWindow telaConfig = new(true) { Owner = this };
+            telaConfig.ShowDialog();
+            IniciarGravacaoAutomatica();
+        }
+
+        private void MenuTema_Click(object sender, RoutedEventArgs e)
+        {
+            ViewModel.IsTemaEscuro = !ViewModel.IsTemaEscuro;
+            AplicarTema();
+        }
+
+        private void MenuNuvem_Click(object sender, RoutedEventArgs e)
+        {
+            if (ViewModel.NivelAcessoUsuario != "Administrador") { MessageBox.Show("Acesso Negado!", "Segurança", MessageBoxButton.OK, MessageBoxImage.Error); return; }
+            SetupWindow telaSetup = new() { Owner = this }; telaSetup.ShowDialog();
+        }
+
+        private void MenuCadastro_Click(object sender, RoutedEventArgs e)
+        {
+            if (ViewModel.NivelAcessoUsuario != "Administrador") { MessageBox.Show("Acesso Negado!", "Segurança", MessageBoxButton.OK, MessageBoxImage.Error); return; }
+            CadastroUsuariosWindow t = new(ViewModel.NomeUsuarioLogado) { Owner = this }; t.ShowDialog();
+        }
+
+        private void MenuLogs_Click(object sender, RoutedEventArgs e) { AuditoriaWindow t = new() { Owner = this }; t.ShowDialog(); }
+        private void MenuAtualizar_Click(object sender, RoutedEventArgs e) { AtualizacaoWindow t = new() { Owner = this }; t.ShowDialog(); }
+        private void MenuRemoto_Click(object sender, RoutedEventArgs e) { SuporteRemotoWindow t = new() { Owner = this }; t.ShowDialog(); }
+        private void MenuSuporte_Click(object sender, RoutedEventArgs e) { try { Process.Start(new ProcessStartInfo { FileName = "https://www.engeradios.com.br/suporte", UseShellExecute = true }); } catch { } }
+
+        private void BtnPararEmergencia_Click(object sender, RoutedEventArgs e)
+        {
+            if (_gravadoresAtivos.Count > 0)
             {
-                _todosOsRegistos = _databaseService.ObterHistorico();
-                AplicarFiltros();
+                foreach (var canal in _gravadoresAtivos) canal.Value.PararEscuta();
+                _gravadoresAtivos.Clear();
+                foreach (var canalUi in _listaUiCanais) { canalUi.NivelSinal = 0; canalUi.StatusTexto = "DESLIGADO"; canalUi.CorAtividade = Brushes.DarkRed; }
+                if (TxtGravando != null) { TxtGravando.Text = "SISTEMA PARADO"; TxtGravando.Foreground = Brushes.Gray; LedGravando.Fill = Brushes.Gray; }
+                if (BtnPararEmergencia != null) BtnPararEmergencia.Content = "REINICIAR MOTORES";
+                _logService.Registar(ViewModel.NomeUsuarioLogado, "Parou os motores de gravação manualmente", "Aviso");
+            }
+            else
+            {
+                IniciarGravacaoAutomatica();
+                _logService.Registar(ViewModel.NomeUsuarioLogado, "Reiniciou os motores de gravação");
             }
         }
 
-        private void TxtBusca_TextChanged(object sender, TextChangedEventArgs e) => AplicarFiltros();
-        private void DpDataFiltro_SelectedDateChanged(object sender, SelectionChangedEventArgs e) => AplicarFiltros();
-
-        private void AplicarFiltros()
+        private void BtnProteger_Click(object sender, RoutedEventArgs e)
         {
-            var query = _todosOsRegistos.AsQueryable();
-
-            string textoFiltro = TxtBusca.Text.Trim(); // Correção CA1862
-            if (!string.IsNullOrEmpty(textoFiltro))
+            if (sender is Button btn && btn.CommandParameter is RegistoAudio registo)
             {
-                query = query.Where(r => r.Canal.Contains(textoFiltro, StringComparison.OrdinalIgnoreCase) ||
-                                         r.Anotacoes.Contains(textoFiltro, StringComparison.OrdinalIgnoreCase));
+                bool novoEstado = !registo.Protegido;
+                _databaseService.AlternarProtecao(registo.Id, novoEstado);
+                _logService.Registar(ViewModel.NomeUsuarioLogado, $"O operador {(novoEstado ? "protegeu" : "desprotegeu")} o áudio ID {registo.Id}");
+                _ = ViewModel.AtualizarHistoricoAsync();
             }
-
-            if (DpDataFiltro.SelectedDate.HasValue)
-            {
-                var data = DpDataFiltro.SelectedDate.Value.Date;
-                query = query.Where(r => r.DataHoraGravacao.Date == data);
-            }
-
-            GridHistorico.ItemsSource = query.ToList();
-
-            int audiosHoje = _todosOsRegistos.Count(r => r.DataHoraGravacao.Date == DateTime.Today);
-            TxtAudiosHoje.Text = audiosHoje.ToString();
         }
 
         private void BtnAnotar_Click(object sender, RoutedEventArgs e)
         {
             if (sender is Button btn && btn.CommandParameter is RegistoAudio registo)
             {
-                Window prompt = new()
-                {
-                    Width = 400,
-                    Height = 250,
-                    Title = "Anotação de Áudio",
-                    WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                    Owner = this,
-                    WindowStyle = WindowStyle.ToolWindow,
-                    Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E"))
-                };
-
+                Window prompt = new() { Width = 400, Height = 250, Title = "Anotação", WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = this, WindowStyle = WindowStyle.ToolWindow, Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E")) };
                 StackPanel painel = new() { Margin = new Thickness(20) };
-                painel.Children.Add(new TextBlock { Text = $"Adicionar nota (Canal {registo.Canal}):", Foreground = Brushes.White, Margin = new Thickness(0, 0, 0, 10) });
-
                 TextBox txtNota = new() { Text = registo.Anotacoes, Height = 80, TextWrapping = TextWrapping.Wrap, AcceptsReturn = true, Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2A2A2A")), Foreground = Brushes.White, Padding = new Thickness(5) };
-                painel.Children.Add(txtNota);
-
-                Button btnSalvar = new() { Content = "GUARDAR NOTA", Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CC0000")), Foreground = Brushes.White, Height = 35, Margin = new Thickness(0, 15, 0, 0), FontWeight = FontWeights.Bold, Cursor = System.Windows.Input.Cursors.Hand };
-                btnSalvar.Click += (s, ev) => {
-                    _databaseService.AtualizarAnotacao(registo.Id, txtNota.Text);
-                    _logService.Registar(_nomeUsuarioLogado, $"Adicionou nota ao áudio ID {registo.Id}");
-                    prompt.DialogResult = true;
-                    prompt.Close();
-                };
-                painel.Children.Add(btnSalvar);
-                prompt.Content = painel;
-
-                if (prompt.ShowDialog() == true) AtualizarHistorico();
+                Button btnSalvar = new() { Content = "GUARDAR", Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CC0000")), Foreground = Brushes.White, Height = 35, Margin = new Thickness(0, 15, 0, 0), FontWeight = FontWeights.Bold };
+                btnSalvar.Click += (s, ev) => { _databaseService.AtualizarAnotacao(registo.Id, txtNota.Text); prompt.DialogResult = true; prompt.Close(); };
+                painel.Children.Add(txtNota); painel.Children.Add(btnSalvar); prompt.Content = painel;
+                if (prompt.ShowDialog() == true) _ = ViewModel.AtualizarHistoricoAsync();
             }
         }
 
@@ -203,18 +260,10 @@ namespace Engeradios.Desktop
             {
                 if (File.Exists(registo.CaminhoFicheiro))
                 {
-                    _logService.Registar(_nomeUsuarioLogado, $"Reproduziu áudio ID {registo.Id} no Leitor Interno");
-
-                    AudioPlayerWindow leitor = new(registo.CaminhoFicheiro, registo.Canal, registo.DataHoraGravacao.ToString("dd/MM/yyyy HH:mm:ss"))
-                    {
-                        Owner = this
-                    };
-                    leitor.Show();
+                    _logService.Registar(ViewModel.NomeUsuarioLogado, $"Reproduziu áudio ID {registo.Id}");
+                    new AudioPlayerWindow(registo.CaminhoFicheiro, registo.Canal, registo.DataHoraGravacao.ToString("dd/MM/yyyy HH:mm:ss")) { Owner = this }.Show();
                 }
-                else
-                {
-                    MessageBox.Show("O ficheiro original não foi encontrado ou já foi sincronizado e apagado.", "Ficheiro Ausente", MessageBoxButton.OK, MessageBoxImage.Warning);
-                }
+                else MessageBox.Show("Ficheiro ausente.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 
@@ -222,114 +271,34 @@ namespace Engeradios.Desktop
         {
             if (sender is Button btn && btn.CommandParameter is RegistoAudio registo && File.Exists(registo.CaminhoFicheiro))
             {
-                _logService.Registar(_nomeUsuarioLogado, $"Exportou ficheiro de áudio ID {registo.Id}");
-                MessageBox.Show($"O ficheiro está localizado em:\n{registo.CaminhoFicheiro}", "Exportação", MessageBoxButton.OK, MessageBoxImage.Information);
+                _logService.Registar(ViewModel.NomeUsuarioLogado, $"Exportou áudio ID {registo.Id}");
+                MessageBox.Show($"Localizado em:\n{registo.CaminhoFicheiro}", "Exportação", MessageBoxButton.OK, MessageBoxImage.Information);
             }
         }
 
-        private void BtnPararEmergencia_Click(object sender, RoutedEventArgs e)
+        private void TxtBusca_TextChanged(object sender, TextChangedEventArgs e) => AplicarFiltrosLocais();
+        private void DpDataFiltro_SelectedDateChanged(object sender, SelectionChangedEventArgs e) => AplicarFiltrosLocais();
+
+        private void AplicarFiltrosLocais()
         {
-            if (_gravadoresAtivos.Count > 0)
-            {
-                foreach (var canal in _gravadoresAtivos) canal.Value.PararEscuta();
-                _gravadoresAtivos.Clear();
+            if (GridHistorico == null || TxtBusca == null || DpDataFiltro == null) return;
+            var query = _databaseService.ObterHistorico().AsQueryable();
 
-                TxtGravando.Text = "SISTEMA PARADO";
-                TxtGravando.Foreground = Brushes.Gray;
-                LedGravando.Fill = Brushes.Gray;
-                TxtCanaisAtivos.Text = "Nenhum canal ativo";
-                BtnPararEmergencia.Content = "REINICIAR MOTORES";
-                _logService.Registar(_nomeUsuarioLogado, "Parou os motores de gravação manualmente", "Aviso");
-            }
-            else
-            {
-                IniciarGravacaoAutomatica();
-                _logService.Registar(_nomeUsuarioLogado, "Reiniciou os motores de gravação");
-            }
-        }
+            string filtro = TxtBusca.Text.Trim();
+            if (!string.IsNullOrEmpty(filtro))
+                query = query.Where(r => (r.Canal != null && r.Canal.Contains(filtro, StringComparison.OrdinalIgnoreCase)) ||
+                                         (r.Anotacoes != null && r.Anotacoes.Contains(filtro, StringComparison.OrdinalIgnoreCase)));
 
-        private void MenuConfig_Click(object sender, RoutedEventArgs e)
-        {
-            if (_nivelAcessoUsuario != "Administrador")
-            {
-                MessageBox.Show("Acesso Negado!", "Segurança", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
+            if (DpDataFiltro.SelectedDate.HasValue)
+                query = query.Where(r => r.DataHoraGravacao.Date == DpDataFiltro.SelectedDate.Value.Date);
 
-            foreach (var canal in _gravadoresAtivos) canal.Value.PararEscuta();
-            _gravadoresAtivos.Clear();
-
-            ConfiguracoesWindow telaConfig = new(true) { Owner = this };
-            telaConfig.ShowDialog();
-
-            IniciarGravacaoAutomatica();
-        }
-
-        private void MenuTema_Click(object sender, RoutedEventArgs e)
-        {
-            _isTemaEscuro = !_isTemaEscuro;
-            AplicarTema();
-        }
-
-        private void AplicarTema()
-        {
-            string pastaBase = AppDomain.CurrentDomain.BaseDirectory;
-
-            if (_isTemaEscuro)
-            {
-                JanelaPrincipal.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#0F0F0F"));
-                MenuSuperior.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1A1A1A"));
-                MenuSuperior.Foreground = Brushes.White;
-                MenuTema.Header = "☀️ Tema Claro";
-
-                CabecalhoBorder.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#151515"));
-
-                string logoEscuroPath = Path.Combine(pastaBase, "logo_escuro.png");
-                if (File.Exists(logoEscuroPath)) ImgLogoPrincipal.Source = new BitmapImage(new Uri(logoEscuroPath, UriKind.Absolute));
-
-                Card1.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E"));
-                Card2.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E"));
-                Card3.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E"));
-                Card4.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E"));
-
-                PainelEsquerdo.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E"));
-                PainelDireito.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E"));
-
-                GridHistorico.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E"));
-                GridHistorico.RowBackground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E"));
-                GridHistorico.AlternatingRowBackground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#252525"));
-                GridHistorico.Foreground = Brushes.White;
-            }
-            else
-            {
-                JanelaPrincipal.Background = new SolidColorBrush(Colors.LightGray);
-                MenuSuperior.Background = new SolidColorBrush(Colors.White);
-                MenuSuperior.Foreground = Brushes.Black;
-                MenuTema.Header = "🌙 Tema Escuro";
-
-                CabecalhoBorder.Background = new SolidColorBrush(Colors.WhiteSmoke);
-
-                string logoClaroPath = Path.Combine(pastaBase, "logo_claro.png");
-                if (File.Exists(logoClaroPath)) ImgLogoPrincipal.Source = new BitmapImage(new Uri(logoClaroPath, UriKind.Absolute));
-
-                Card1.Background = Brushes.White;
-                Card2.Background = Brushes.White;
-                Card3.Background = Brushes.White;
-                Card4.Background = Brushes.White;
-
-                PainelEsquerdo.Background = Brushes.White;
-                PainelDireito.Background = Brushes.White;
-
-                GridHistorico.Background = Brushes.White;
-                GridHistorico.RowBackground = Brushes.White;
-                GridHistorico.AlternatingRowBackground = new SolidColorBrush(Colors.WhiteSmoke);
-                GridHistorico.Foreground = Brushes.Black;
-            }
+            GridHistorico.ItemsSource = query.Take(150).ToList();
+            if (TxtAudiosHoje != null) TxtAudiosHoje.Text = _databaseService.ObterHistorico().Count(r => r.DataHoraGravacao.Date == DateTime.Today).ToString();
         }
 
         private void ConfigurarMonitoramentoSegundoPlano()
         {
-            _timerMonitoramento = new() { Interval = TimeSpan.FromSeconds(30) };
+            _timerMonitoramento = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
             _timerMonitoramento.Tick += TimerMonitoramento_Tick;
             _timerMonitoramento.Start();
             TimerMonitoramento_Tick(this, EventArgs.Empty);
@@ -341,197 +310,65 @@ namespace Engeradios.Desktop
             {
                 string raiz = Path.GetPathRoot(_pastaGravacoes) ?? "C:\\";
                 DriveInfo disco = new(raiz);
-                double espacoLivreGb = disco.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0);
+                double espacoUsadoGb = CalcularTamanhoPasta(_pastaGravacoes) / (1024.0 * 1024.0 * 1024.0);
+                double maxGb = 40.0;
 
-                // NOVO: Calcula o tamanho real da pasta em Gigabytes
-                double espacoUsadoNaPastaGb = CalcularTamanhoPasta(_pastaGravacoes) / (1024.0 * 1024.0 * 1024.0);
-                double quotaMaximaGb = 40.0; // Aqui você define o limite do disco para este cliente
+                if (BarraDisco != null) { BarraDisco.Maximum = maxGb; BarraDisco.Value = espacoUsadoGb; }
+                if (TxtUsoDisco != null) TxtUsoDisco.Text = $"{espacoUsadoGb:F1} GB / {maxGb} GB";
 
-                if (BarraDisco != null && TxtUsoDisco != null)
+                string chaveNuvem = ConfigSecurity.ObterApiKey();
+                if (!string.IsNullOrEmpty(chaveNuvem) && LedNuvem != null && TxtEstadoNuvem != null)
                 {
-                    BarraDisco.Maximum = quotaMaximaGb;
-                    BarraDisco.Value = espacoUsadoNaPastaGb;
-                    TxtUsoDisco.Text = $"{espacoUsadoNaPastaGb:F1} GB / {quotaMaximaGb} GB";
+                    LedNuvem.Fill = new SolidColorBrush(Colors.LimeGreen); TxtEstadoNuvem.Text = "Conectado ao Cloud Sync";
 
-                    if (espacoUsadoNaPastaGb >= quotaMaximaGb * 0.9)
-                        BarraDisco.Foreground = new SolidColorBrush(Colors.Red);
+                    GerirEspacoLocalFIFO(espacoUsadoGb, maxGb);
+
+                    if (await _cloudSyncService.SincronizarPendentesAsync() > 0) await ViewModel.AtualizarHistoricoAsync();
+                    await _cloudSyncService.SincronizarLogsAsync();
                 }
-
-                string chaveDaNuvem = string.Empty;
-                try { chaveDaNuvem = ConfigSecurity.ObterApiKey(); } catch { }
-
-                if (_telemetryClient != null && LedNuvem != null && TxtEstadoNuvem != null)
+                else if (LedNuvem != null)
                 {
-                    if (!string.IsNullOrEmpty(chaveDaNuvem))
-                    {
-                        await _telemetryClient.EnviarHeartbeatAsync(chaveDaNuvem, espacoLivreGb);
-                        LedNuvem.Fill = new SolidColorBrush(Colors.LimeGreen);
-                        TxtEstadoNuvem.Text = "Conectado ao Cloud Sync";
-
-                        // NOVO: Executa a Regra FIFO Local - Protegendo Arquivos Marcados
-                        GerirEspacoLocalFIFO(espacoUsadoNaPastaGb, quotaMaximaGb);
-
-                        // Envia áudios pendentes
-                        int arquivosEnviados = await _cloudSyncService.SincronizarPendentesAsync();
-                        if (arquivosEnviados > 0) AtualizarHistorico();
-
-                        // NOVO: Envia os logs de auditoria
-                        await _cloudSyncService.SincronizarLogsAsync();
-                    }
-                    else
-                    {
-                        LedNuvem.Fill = new SolidColorBrush(Colors.Orange);
-                        TxtEstadoNuvem.Text = "Aguardando Setup de API";
-                    }
+                    LedNuvem.Fill = new SolidColorBrush(Colors.Orange); TxtEstadoNuvem.Text = "Aguardando Setup de API";
                 }
             }
             catch (Exception)
             {
-                if (LedNuvem != null && TxtEstadoNuvem != null)
-                {
-                    LedNuvem.Fill = new SolidColorBrush(Colors.Red);
-                    TxtEstadoNuvem.Text = "Sem Ligação KingHost";
-                }
+                if (LedNuvem != null && TxtEstadoNuvem != null) { LedNuvem.Fill = new SolidColorBrush(Colors.Red); TxtEstadoNuvem.Text = "Sem Ligação KingHost"; }
             }
-        }
-
-        // --- NOVAS FUNÇÕES DE ESPAÇO E PROTEÇÃO ---
-
-        private double CalcularTamanhoPasta(string caminho)
-        {
-            if (!Directory.Exists(caminho)) return 0;
-            // Lê todos os ficheiros da pasta e soma o tamanho em bytes
-            return new DirectoryInfo(caminho).EnumerateFiles("*.*", SearchOption.AllDirectories).Sum(fi => fi.Length);
         }
 
         private void GerirEspacoLocalFIFO(double espacoAtualGb, double quotaGb)
         {
-            try
+            if (espacoAtualGb <= quotaGb) return;
+            var candidatos = _databaseService.ObterCandidatosLimpeza(50);
+            foreach (var audio in candidatos)
             {
-                // A regra é clara: Se o disco ainda tem espaço, NÃO APAGAR NADA!
-                if (espacoAtualGb <= quotaGb) return;
-
-                // Atingiu o limite. Pede à base de dados os 50 ficheiros mais antigos que NÃO estão marcados (Protegido = 0)
-                var candidatos = _databaseService.ObterCandidatosLimpeza(50);
-
-                int apagados = 0;
-                foreach (var audio in candidatos)
-                {
-                    try
-                    {
-                        if (File.Exists(audio.CaminhoFicheiro))
-                        {
-                            File.Delete(audio.CaminhoFicheiro);
-                        }
-                        // Remove o registo do histórico
-                        _databaseService.RemoverRegisto(audio.Id);
-                        apagados++;
-                    }
-                    catch { /* Ficheiro trancado pelo Windows, ignora por agora */ }
-                }
-
-                if (apagados > 0)
-                {
-                    _logService.Registar(_nomeUsuarioLogado, $"Limpeza Automática Local: {apagados} áudios desprotegidos foram apagados porque o disco atingiu o limite de {quotaGb}GB.", "Aviso");
-                    Application.Current.Dispatcher.InvokeAsync(AtualizarHistorico);
-                }
+                try { if (File.Exists(audio.CaminhoFicheiro)) File.Delete(audio.CaminhoFicheiro); _databaseService.RemoverRegisto(audio.Id); }
+                catch (Exception ex) { _logService.Registar(ViewModel.NomeUsuarioLogado, $"Erro FIFO: {ex.Message}", "Erro"); }
             }
-            catch (Exception ex)
+            _ = ViewModel.AtualizarHistoricoAsync();
+        }
+
+        private static double CalcularTamanhoPasta(string caminho) => !Directory.Exists(caminho) ? 0 : new DirectoryInfo(caminho).EnumerateFiles("*.*", SearchOption.AllDirectories).Sum(fi => fi.Length);
+
+        private void AplicarTema()
+        {
+            if (JanelaPrincipal == null) return;
+            string pastaBase = AppDomain.CurrentDomain.BaseDirectory;
+            if (ViewModel.IsTemaEscuro)
             {
-                Console.WriteLine($"Erro na rotina FIFO: {ex.Message}");
+                JanelaPrincipal.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#0F0F0F"));
+                if (MenuSuperior != null) { MenuSuperior.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1A1A1A")); MenuSuperior.Foreground = Brushes.White; MenuTema.Header = "☀️ Tema Claro"; }
+                if (CabecalhoBorder != null) CabecalhoBorder.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#151515"));
+                if (GridHistorico != null) { GridHistorico.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E")); GridHistorico.Foreground = Brushes.White; GridHistorico.RowBackground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E")); GridHistorico.AlternatingRowBackground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#252525")); }
+            }
+            else
+            {
+                JanelaPrincipal.Background = new SolidColorBrush(Colors.LightGray);
+                if (MenuSuperior != null) { MenuSuperior.Background = Brushes.White; MenuSuperior.Foreground = Brushes.Black; MenuTema.Header = "🌙 Tema Escuro"; }
+                if (CabecalhoBorder != null) CabecalhoBorder.Background = new SolidColorBrush(Colors.WhiteSmoke);
+                if (GridHistorico != null) { GridHistorico.Background = Brushes.White; GridHistorico.Foreground = Brushes.Black; GridHistorico.RowBackground = Brushes.White; GridHistorico.AlternatingRowBackground = new SolidColorBrush(Colors.WhiteSmoke); }
             }
         }
-
-        private void BtnProteger_Click(object sender, RoutedEventArgs e)
-        {
-            if (sender is Button btn && btn.CommandParameter is RegistoAudio registo)
-            {
-                bool novoEstado = !registo.Protegido;
-                _databaseService.AlternarProtecao(registo.Id, novoEstado);
-
-                string acao = novoEstado ? "protegeu" : "desprotegeu";
-                _logService.Registar(_nomeUsuarioLogado, $"O operador {acao} o áudio ID {registo.Id} contra exclusão automática no PC.");
-
-                AtualizarHistorico();
-            }
-        }
-
-        private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
-        {
-            if (_nivelAcessoUsuario == "Operador")
-            {
-                bool autorizado = MostrarPromptSenhaAdmin();
-                if (!autorizado)
-                {
-                    e.Cancel = true;
-                    return;
-                }
-            }
-
-            _logService.Registar(_nomeUsuarioLogado, "Encerrou o sistema Engeradios");
-            foreach (var canal in _gravadoresAtivos) canal.Value.PararEscuta();
-        }
-
-        private bool MostrarPromptSenhaAdmin()
-        {
-            bool senhaCorreta = false;
-            Window prompt = new()
-            {
-                Width = 350,
-                Height = 220,
-                Title = "Autorização de Saída",
-                WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                ResizeMode = ResizeMode.NoResize,
-                Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1E1E1E")),
-                Owner = this,
-                WindowStyle = WindowStyle.ToolWindow
-            };
-
-            StackPanel painel = new() { Margin = new Thickness(20) };
-            TextBlock txtTitulo = new() { Text = "Acesso Restrito", Foreground = Brushes.White, FontSize = 18, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 10) };
-            TextBlock txtLabel = new() { Text = "Para fechar o gravador, um Administrador\ndeve introduzir a sua palavra-passe:", Foreground = Brushes.LightGray, Margin = new Thickness(0, 0, 0, 15) };
-            PasswordBox pwdBox = new() { Padding = new Thickness(5), FontSize = 16, Margin = new Thickness(0, 0, 0, 20) };
-            Button btnOk = new() { Content = "AUTORIZAR SAÍDA", Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#CC0000")), Foreground = Brushes.White, Height = 35, FontWeight = FontWeights.Bold, Cursor = System.Windows.Input.Cursors.Hand };
-
-            btnOk.Click += (s, ev) =>
-            {
-                if (pwdBox.Password == "admin") { senhaCorreta = true; prompt.Close(); }
-                else { MessageBox.Show("Senha incorreta!", "Erro", MessageBoxButton.OK, MessageBoxImage.Error); pwdBox.Clear(); }
-            };
-
-            painel.Children.Add(txtTitulo); painel.Children.Add(txtLabel); painel.Children.Add(pwdBox); painel.Children.Add(btnOk);
-            prompt.Content = painel;
-            prompt.ShowDialog();
-
-            return senhaCorreta;
-        }
-
-        private void MenuCadastro_Click(object sender, RoutedEventArgs e)
-        {
-            if (_nivelAcessoUsuario != "Administrador")
-            {
-                MessageBox.Show("Acesso Negado! Apenas Administradores podem gerir utilizadores.", "Segurança", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
-
-            CadastroUsuariosWindow telaCadastro = new(_nomeUsuarioLogado) { Owner = this };
-            telaCadastro.ShowDialog();
-        }
-
-        private void MenuLogs_Click(object sender, RoutedEventArgs e)
-        {
-            AuditoriaWindow t = new() { Owner = this };
-            t.ShowDialog();
-        }
-
-        private void MenuAtualizar_Click(object sender, RoutedEventArgs e)
-        {
-            AtualizacaoWindow telaUpdate = new() { Owner = this };
-            telaUpdate.ShowDialog();
-        }
-
-        private void MenuRemoto_Click(object sender, RoutedEventArgs e) { MessageBox.Show("Iniciando módulo de conexão remota...", "Suporte", MessageBoxButton.OK, MessageBoxImage.Information); }
-
-        private void MenuSuporte_Click(object sender, RoutedEventArgs e) { try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = "https://www.engeradios.com.br/suporte", UseShellExecute = true }); } catch { } }
     }
 }

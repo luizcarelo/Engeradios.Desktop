@@ -1,133 +1,175 @@
-﻿<Window x:Class="Engeradios.Desktop.MainWindow"
+﻿<!-- Caminho do arquivo: Engeradios.Desktop/MainWindow.xaml -->
+<Window x:Class="Engeradios.Desktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
         x:Name="JanelaPrincipal"
-        Title="Engeradios C3 - Centro de Comando e Controlo" Height="768" Width="1366"
-        WindowState="Maximized" WindowStartupLocation="CenterScreen" 
-        Background="#0F0F0F" FontFamily="Segoe UI" Closing="Window_Closing">
+        Title="Engeradios C3 - Centro de Comando" Height="768" Width="1366"
+        WindowStartupLocation="CenterScreen"
+        Closing="Window_Closing"
+        FontFamily="Segoe UI"
+        Background="#F4F6F8">
 
     <Window.Resources>
-        <!-- Conversor de Boolean para Visibilidade (Exibe a nuvem verde) -->
-        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+        <!-- Estilo dos Cartões (Cards) -->
+        <Style x:Key="CardStyle" TargetType="Border">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="15"/>
+            <Setter Property="Margin" Value="0,0,10,10"/>
+            <Setter Property="Effect">
+                <Setter.Value>
+                    <DropShadowEffect Color="#000000" Opacity="0.08" BlurRadius="10" ShadowDepth="2"/>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Estilo dos Botões Principais -->
+        <Style x:Key="ModernButton" TargetType="Button">
+            <Setter Property="Background" Value="#005A9E"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="15,8"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#0078D4"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Estilo moderno para botões de ação na tabela -->
+        <Style x:Key="AcaoBotao" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#007ACC"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Margin" Value="2,0"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="4" Padding="8,4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#E5F3FF"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Estilo da DataGrid (Tabela) -->
+        <Style TargetType="DataGrid">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="RowBackground" Value="White"/>
+            <Setter Property="AlternatingRowBackground" Value="#F9FAFB"/>
+            <Setter Property="HeadersVisibility" Value="Column"/>
+            <Setter Property="GridLinesVisibility" Value="Horizontal"/>
+            <Setter Property="HorizontalGridLinesBrush" Value="#E1DFDD"/>
+            <Setter Property="AutoGenerateColumns" Value="False"/>
+            <Setter Property="CanUserAddRows" Value="False"/>
+            <Setter Property="IsReadOnly" Value="True"/>
+        </Style>
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="#F3F2F1"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="BorderBrush" Value="#D2D0CE"/>
+        </Style>
+        <Style TargetType="DataGridCell">
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="DataGridCell">
+                        <Border Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}">
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#E5F3FF"/>
+                    <Setter Property="Foreground" Value="Black"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <!-- 0: Menu -->
-            <RowDefinition Height="70"/>
-            <!-- 1: Header / Logo -->
-            <RowDefinition Height="Auto"/>
-            <!-- 2: Cards de Resumo -->
-            <RowDefinition Height="*"/>
-            <!-- 3: Conteúdo Principal -->
-            <RowDefinition Height="35"/>
-            <!-- 4: Rodapé -->
-        </Grid.RowDefinitions>
-
-        <!-- MENU SUPERIOR -->
-        <Menu x:Name="MenuSuperior" Grid.Row="0" Background="#1A1A1A" Foreground="White" Padding="10,5">
-            <MenuItem x:Name="MenuConfig" Header="⚙️ _Configurações" Click="MenuConfig_Click">
-                <MenuItem Header="Mapeamento de Placas e Canais"/>
-                <MenuItem Header="Sensibilidade (Squelch) e Volume"/>
+    <DockPanel>
+        <!-- Menu Superior -->
+        <Menu x:Name="MenuSuperior" DockPanel.Dock="Top" Background="White" Padding="5">
+            <MenuItem Header="Sistema" FontSize="14">
+                <MenuItem Header="Configurações (Admin)" Click="MenuConfig_Click" />
+                <MenuItem Header="Gestão de Nuvem (KingHost)" Click="MenuNuvem_Click" />
                 <Separator/>
-                <MenuItem Header="Cadastro de Usuários" Click="MenuCadastro_Click"/>
-                <MenuItem Header="Log de Auditoria" Click="MenuLogs_Click"/>
+                <MenuItem Header="Sair" Click="BtnPararEmergencia_Click" />
             </MenuItem>
-            <MenuItem x:Name="MenuAjuda" Header="❓ _Suporte">
-                <MenuItem Header="Verificar Atualizações" Click="MenuAtualizar_Click"/>
-                <MenuItem Header="Suporte Online" Click="MenuSuporte_Click"/>
-                <MenuItem Header="Acesso Remoto" Click="MenuRemoto_Click"/>
+            <MenuItem Header="Segurança" FontSize="14">
+                <MenuItem Header="Cadastro de Utilizadores" Click="MenuCadastro_Click" />
+                <MenuItem Header="Auditoria (Logs)" Click="MenuLogs_Click" />
             </MenuItem>
-            <MenuItem x:Name="MenuTema" Header="☀️ Tema Claro" Click="MenuTema_Click" HorizontalAlignment="Right" Margin="20,0,0,0"/>
+            <MenuItem Header="Visual" FontSize="14">
+                <MenuItem x:Name="MenuTema" Header="🌙 Tema Escuro" Click="MenuTema_Click" />
+            </MenuItem>
+            <MenuItem Header="Ajuda" FontSize="14">
+                <MenuItem Header="Verificar Atualizações" Click="MenuAtualizar_Click" />
+                <MenuItem Header="Suporte Remoto" Click="MenuRemoto_Click" />
+                <MenuItem Header="Portal Engeradios" Click="MenuSuporte_Click" />
+            </MenuItem>
         </Menu>
 
-        <!-- HEADER DA APLICAÇÃO -->
-        <Border x:Name="CabecalhoBorder" Grid.Row="1" Background="#151515" BorderBrush="#CC0000" BorderThickness="0,0,0,3">
-            <Grid Margin="20,0">
+        <!-- Cabeçalho -->
+        <Border x:Name="CabecalhoBorder" DockPanel.Dock="Top" Background="White" Padding="20,10" BorderBrush="#E1DFDD" BorderThickness="0,0,0,1">
+            <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <Image x:Name="ImgLogoPrincipal" Grid.Column="0" Height="45" VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"/>
+                <Image x:Name="ImgLogoPrincipal" Source="logo_claro.png" Height="40" Margin="0,0,15,0" RenderOptions.BitmapScalingMode="HighQuality"/>
+
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="C3 | CENTRO DE COMANDO" FontSize="20" FontWeight="Bold" Foreground="#323130"/>
+                    <TextBlock Text="Sistema de Gravação Automática de Rádio-Comunicações" FontSize="12" Foreground="#605E5C"/>
+                </StackPanel>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="OPERADOR LOGADO:" Foreground="#666666" FontSize="11" VerticalAlignment="Center" Margin="0,0,5,0"/>
-                    <TextBlock x:Name="TxtOperadorLogado" Text="Admin" Foreground="White" FontWeight="Bold" FontSize="14" VerticalAlignment="Center" Margin="0,0,20,0"/>
-
-                    <Border Background="#2A2A2A" CornerRadius="4" Padding="10,5">
-                        <StackPanel Orientation="Horizontal">
-                            <Ellipse x:Name="LedNuvem" Width="10" Height="10" Fill="#CC0000" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                            <TextBlock x:Name="TxtEstadoNuvem" Text="Nuvem: A Ligar..." Foreground="White" FontSize="13" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                        </StackPanel>
-                    </Border>
+                    <Ellipse Width="10" Height="10" Fill="#107C10" Margin="0,0,8,0"/>
+                    <TextBlock Text="Operador:" Foreground="#605E5C" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="TxtOperadorLogado" Text="{Binding NomeUsuarioLogado}" FontWeight="Bold" Foreground="#323130" VerticalAlignment="Center" FontSize="14"/>
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- CARDS DE RESUMO (DASHBOARD) -->
-        <Grid Grid.Row="2" Margin="20,20,20,10">
+        <!-- Corpo Principal -->
+        <Grid Margin="15">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="15"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="15"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="15"/>
+                <ColumnDefinition Width="350"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Card 1: Estado da Gravação -->
-            <Border x:Name="Card1" Grid.Column="0" Background="#1E1E1E" CornerRadius="6" Padding="15">
-                <StackPanel>
-                    <TextBlock Text="STATUS DO SISTEMA" Foreground="#AAAAAA" FontSize="11" FontWeight="SemiBold"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                        <Ellipse x:Name="LedGravando" Width="14" Height="14" Fill="#CC0000" VerticalAlignment="Center"/>
-                        <TextBlock x:Name="TxtGravando" Text="GRAVAÇÃO ATIVA" Foreground="#CC0000" FontWeight="Bold" FontSize="16" Margin="10,0,0,0"/>
-                    </StackPanel>
-                    <TextBlock x:Name="TxtCanaisAtivos" Text="3 Canais em Monitorização" Foreground="#888888" FontSize="12" Margin="0,5,0,0"/>
-                </StackPanel>
-            </Border>
-
-            <!-- Card 2: Áudios Hoje -->
-            <Border x:Name="Card2" Grid.Column="2" Background="#1E1E1E" CornerRadius="6" Padding="15">
-                <StackPanel>
-                    <TextBlock Text="ÁUDIOS CAPTURADOS HOJE" Foreground="#AAAAAA" FontSize="11" FontWeight="SemiBold"/>
-                    <TextBlock x:Name="TxtAudiosHoje" Text="0" Foreground="White" FontWeight="Bold" FontSize="22" Margin="0,5,0,0"/>
-                </StackPanel>
-            </Border>
-
-            <!-- Card 3: Espaço em Disco -->
-            <Border x:Name="Card3" Grid.Column="4" Background="#1E1E1E" CornerRadius="6" Padding="15">
-                <StackPanel>
-                    <TextBlock Text="ARMAZENAMENTO LOCAL" Foreground="#AAAAAA" FontSize="11" FontWeight="SemiBold"/>
-                    <ProgressBar x:Name="BarraDisco" Height="8" Minimum="0" Maximum="40" Value="0" Foreground="#CC0000" Background="#333333" BorderThickness="0" Margin="0,10,0,5"/>
-                    <TextBlock x:Name="TxtUsoDisco" Text="Calculando..." Foreground="White" FontSize="12" FontWeight="SemiBold"/>
-                </StackPanel>
-            </Border>
-
-            <!-- Card 4: Sincronização -->
-            <Border x:Name="Card4" Grid.Column="6" Background="#1E1E1E" CornerRadius="6" Padding="15">
-                <StackPanel>
-                    <TextBlock Text="FILA DE UPLOAD (NUVEM)" Foreground="#AAAAAA" FontSize="11" FontWeight="SemiBold"/>
-                    <TextBlock Text="Sincronização em Background" Foreground="LimeGreen" FontWeight="Bold" FontSize="14" Margin="0,5,0,0"/>
-                    <TextBlock Text="Totalmente Automatizado" Foreground="#888888" FontSize="12" Margin="0,2,0,0"/>
-                </StackPanel>
-            </Border>
-        </Grid>
-
-        <!-- ÁREA PRINCIPAL DIVIDIDA -->
-        <Grid Grid.Row="3" Margin="20,10,20,20">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="320"/>
-                <ColumnDefinition Width="20"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-
-            <!-- PAINEL ESQUERDO: Telemetria em Tempo Real -->
-            <Border x:Name="PainelEsquerdo" Grid.Column="0" Background="#1E1E1E" CornerRadius="6" Padding="15">
+            <!-- PAINEL ESQUERDO: Monitorização em Tempo Real -->
+            <Border x:Name="PainelEsquerdo" Grid.Column="0" Style="{StaticResource CardStyle}" Margin="0,0,15,0">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -135,116 +177,154 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <TextBlock Grid.Row="0" Text="TELEMETRIA DE ÁUDIO" Foreground="White" FontSize="14" FontWeight="Bold" Margin="0,0,0,15"/>
+                    <TextBlock Text="CANAIS EM MONITORAÇÃO" FontSize="16" FontWeight="Bold" Margin="0,0,0,15"/>
 
-                    <!-- Simulação do Espectro embutido -->
-                    <StackPanel Grid.Row="1" VerticalAlignment="Center">
-                        <TextBlock Text="Sinal de Entrada Global" Foreground="#AAAAAA" FontSize="12" HorizontalAlignment="Center" Margin="0,0,0,10"/>
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Height="100">
-                            <Rectangle x:Name="BarraA1" Width="15" Height="10" Fill="#CC0000" Margin="4,0" VerticalAlignment="Bottom" RadiusX="3" RadiusY="3"/>
-                            <Rectangle x:Name="BarraA2" Width="15" Height="25" Fill="#CC0000" Margin="4,0" VerticalAlignment="Bottom" RadiusX="3" RadiusY="3"/>
-                            <Rectangle x:Name="BarraA3" Width="15" Height="15" Fill="#CC0000" Margin="4,0" VerticalAlignment="Bottom" RadiusX="3" RadiusY="3"/>
-                            <Rectangle x:Name="BarraA4" Width="15" Height="60" Fill="#CC0000" Margin="4,0" VerticalAlignment="Bottom" RadiusX="3" RadiusY="3"/>
-                            <Rectangle x:Name="BarraA5" Width="15" Height="40" Fill="#CC0000" Margin="4,0" VerticalAlignment="Bottom" RadiusX="3" RadiusY="3"/>
-                            <Rectangle x:Name="BarraA6" Width="15" Height="80" Fill="#CC0000" Margin="4,0" VerticalAlignment="Bottom" RadiusX="3" RadiusY="3"/>
-                            <Rectangle x:Name="BarraA7" Width="15" Height="30" Fill="#CC0000" Margin="4,0" VerticalAlignment="Bottom" RadiusX="3" RadiusY="3"/>
+                    <!-- Lista de VU Meters -->
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl x:Name="ListaCanaisAtivos">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="#F9FAFB" CornerRadius="6" Padding="10" Margin="0,0,0,10" BorderBrush="#E1DFDD" BorderThickness="1">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
+
+                                            <StackPanel Orientation="Horizontal" Grid.Row="0" Grid.Column="0">
+                                                <Ellipse Width="8" Height="8" Fill="{Binding CorAtividade}" Margin="0,0,8,0"/>
+                                                <TextBlock Text="{Binding NomeCanal}" FontWeight="Bold" FontSize="14"/>
+                                            </StackPanel>
+
+                                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding StatusTexto}" Foreground="{Binding CorAtividade}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
+
+                                            <!-- VU Meter (Barra de Som Fluida) -->
+                                            <ProgressBar Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" 
+                                                         Value="{Binding NivelSinal}" Maximum="100" 
+                                                         Height="6" Margin="0,10,0,0" 
+                                                         Foreground="{Binding CorAtividade}" Background="#E1DFDD" BorderThickness="0"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+
+                    <Button x:Name="BtnPararEmergencia" Grid.Row="2" Style="{StaticResource ModernButton}" Background="#D13438" Content="PARAR MOTORES (EMERGÊNCIA)" Margin="0,15,0,0" Click="BtnPararEmergencia_Click"/>
+                </Grid>
+            </Border>
+
+            <!-- PAINEL DIREITO: Dashboard e Histórico -->
+            <Grid Grid.Column="1" x:Name="PainelDireito">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- Cards de Métricas -->
+                <UniformGrid Columns="4" Grid.Row="0">
+                    <Border x:Name="Card1" Style="{StaticResource CardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="ESTADO DO SISTEMA" FontSize="11" Foreground="#605E5C" FontWeight="Bold"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <Ellipse x:Name="LedGravando" Width="14" Height="14" Fill="Gray" Margin="0,0,8,0"/>
+                                <TextBlock x:Name="TxtGravando" Text="A INICIAR" FontSize="16" FontWeight="Bold"/>
+                            </StackPanel>
+                            <TextBlock x:Name="TxtCanaisAtivos" Text="0 Canais Alocados" FontSize="12" Foreground="#605E5C" Margin="0,5,0,0"/>
                         </StackPanel>
-                    </StackPanel>
+                    </Border>
 
-                    <Button x:Name="BtnPararEmergencia" Grid.Row="2" Content="PARAR MOTORES (EMERGÊNCIA)" Background="#444444" Foreground="White" Height="40" FontWeight="Bold" BorderThickness="0" Cursor="Hand" Click="BtnPararEmergencia_Click"/>
-                </Grid>
-            </Border>
+                    <Border x:Name="Card2" Style="{StaticResource CardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="CLOUD SYNC (KINGHOST)" FontSize="11" Foreground="#605E5C" FontWeight="Bold"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <Ellipse x:Name="LedNuvem" Width="14" Height="14" Fill="Orange" Margin="0,0,8,0"/>
+                                <TextBlock x:Name="TxtEstadoNuvem" Text="A Verificar..." FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <TextBlock Text="Última sincronização: Agora" FontSize="12" Foreground="#605E5C" Margin="0,5,0,0"/>
+                        </StackPanel>
+                    </Border>
 
-            <!-- PAINEL DIREITO: Gestão de Gravações -->
-            <Border x:Name="PainelDireito" Grid.Column="2" Background="#1E1E1E" CornerRadius="6" Padding="15">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                    </Grid.RowDefinitions>
+                    <Border x:Name="Card3" Style="{StaticResource CardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="ARMAZENAMENTO LOCAL" FontSize="11" Foreground="#605E5C" FontWeight="Bold"/>
+                            <TextBlock x:Name="TxtUsoDisco" Text="0.0 GB / 40.0 GB" FontSize="16" FontWeight="Bold" Margin="0,5,0,0"/>
+                            <ProgressBar x:Name="BarraDisco" Height="6" Margin="0,8,0,0" Foreground="#0078D4" Background="#E1DFDD" BorderThickness="0"/>
+                        </StackPanel>
+                    </Border>
 
-                    <!-- Barra de Filtros -->
-                    <Grid Grid.Row="0" Margin="0,0,0,15">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="200"/>
-                            <ColumnDefinition Width="150"/>
-                        </Grid.ColumnDefinitions>
+                    <Border x:Name="Card4" Style="{StaticResource CardStyle}" Margin="0,0,0,10">
+                        <StackPanel>
+                            <TextBlock Text="ÁUDIOS GRAVADOS HOJE" FontSize="11" Foreground="#605E5C" FontWeight="Bold"/>
+                            <TextBlock x:Name="TxtAudiosHoje" Text="0" FontSize="24" FontWeight="Bold" Foreground="#0078D4" Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </UniformGrid>
 
-                        <TextBlock Grid.Column="0" Text="HISTÓRICO DE GRAVAÇÕES" Foreground="White" FontSize="16" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,20,0"/>
+                <!-- Área de Histórico (Tabela) -->
+                <Border Style="{StaticResource CardStyle}" Grid.Row="1" Margin="0">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
 
-                        <!-- Campos de Busca -->
-                        <TextBox x:Name="TxtBusca" Grid.Column="2" Padding="8,5" Background="#2A2A2A" Foreground="White" BorderBrush="#444444" Margin="0,0,10,0" VerticalContentAlignment="Center" TextChanged="TxtBusca_TextChanged"/>
-                        <TextBlock Grid.Column="2" Text="🔍 Procurar Canal..." Foreground="#777777" Margin="10,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                        <!-- Filtros -->
+                        <Grid Grid.Row="0" Margin="0,0,0,15">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
 
-                        <DatePicker x:Name="DpDataFiltro" Grid.Column="3" Background="#2A2A2A" Foreground="Black" SelectedDateChanged="DpDataFiltro_SelectedDateChanged"/>
+                            <TextBlock Text="HISTÓRICO RECENTE (150 MÁX)" FontSize="16" FontWeight="Bold" VerticalAlignment="Center"/>
+
+                            <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                <TextBlock Text="Data:" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                <DatePicker x:Name="DpDataFiltro" Width="120" Margin="0,0,15,0" SelectedDateChanged="DpDataFiltro_SelectedDateChanged"/>
+
+                                <TextBlock Text="Pesquisar:" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                <TextBox x:Name="TxtBusca" Width="180" Padding="4" VerticalContentAlignment="Center" TextChanged="TxtBusca_TextChanged" ToolTip="Pesquise por Canal ou Anotação"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- Tabela de Dados -->
+                        <DataGrid x:Name="GridHistorico" Grid.Row="1">
+                            <DataGrid.Columns>
+                                <!-- Coluna de Nuvem (Ícone simples textual) -->
+                                <DataGridTextColumn Header="Cloud" Binding="{Binding SincronizadoComNuvem, Converter={StaticResource BoolToCloudConverter}}" Width="60" ElementStyle="{StaticResource CenterText}"/>
+
+                                <DataGridTextColumn Header="Data e Hora" Binding="{Binding DataHoraGravacao, StringFormat=\{0:dd/MM/yyyy HH:mm:ss\}}" Width="140"/>
+                                <DataGridTextColumn Header="Canal" Binding="{Binding Canal}" Width="120" FontWeight="SemiBold"/>
+                                <DataGridTextColumn Header="Duração (s)" Binding="{Binding DuracaoSegundos}" Width="90"/>
+
+                                <!-- Coluna de Proteção -->
+                                <DataGridTextColumn Header="Protegido" Binding="{Binding Protegido, Converter={StaticResource BoolToLockConverter}}" Width="80" ElementStyle="{StaticResource CenterText}"/>
+
+                                <DataGridTextColumn Header="Anotação" Binding="{Binding Anotacoes}" Width="*" />
+
+                                <!-- Botões de Ação -->
+                                <DataGridTemplateColumn Header="Ações" Width="260">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal">
+                                                <Button Style="{StaticResource AcaoBotao}" Content="▶ Ouvir" CommandParameter="{Binding}" Click="BtnPlay_Click"/>
+                                                <Button Style="{StaticResource AcaoBotao}" Content="✎ Notar" CommandParameter="{Binding}" Click="BtnAnotar_Click"/>
+                                                <Button Style="{StaticResource AcaoBotao}" Content="🔒 Proteger" CommandParameter="{Binding}" Click="BtnProteger_Click"/>
+                                                <Button Style="{StaticResource AcaoBotao}" Content="💾 Salvar" CommandParameter="{Binding}" Click="BtnExportar_Click"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
                     </Grid>
-
-                    <!-- Grelha Profissional -->
-                    <DataGrid x:Name="GridHistorico" Grid.Row="1" Background="#1E1E1E" BorderThickness="0" 
-                              RowHeight="40" RowBackground="#1E1E1E" AlternatingRowBackground="#252525" 
-                              Foreground="White" HeadersVisibility="Column" AutoGenerateColumns="False" 
-                              IsReadOnly="True" GridLinesVisibility="None" SelectionMode="Single">
-
-                        <!-- Estilo moderno para o cabeçalho -->
-                        <DataGrid.ColumnHeaderStyle>
-                            <Style TargetType="DataGridColumnHeader">
-                                <Setter Property="Background" Value="#2A2A2A"/>
-                                <Setter Property="Foreground" Value="#AAAAAA"/>
-                                <Setter Property="Padding" Value="10,8"/>
-                                <Setter Property="FontWeight" Value="SemiBold"/>
-                            </Style>
-                        </DataGrid.ColumnHeaderStyle>
-
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="60"/>
-                            <DataGridTextColumn Header="Data / Hora" Binding="{Binding DataHoraGravacao, StringFormat=\{0:dd/MM/yyyy HH:mm:ss\}}" Width="160"/>
-                            <DataGridTextColumn Header="Canal" Binding="{Binding Canal}" Width="150"/>
-                            <DataGridTextColumn Header="Duração" Binding="{Binding DuracaoSegundos, StringFormat=\{0\} seg}" Width="100"/>
-
-                            <!-- Novo Indicador Visual de Proteção (Marcado) -->
-                            <DataGridTemplateColumn Header="Salvo" Width="60">
-                                <DataGridTemplateColumn.CellTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="⭐" Foreground="Gold" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding Protegido, Converter={StaticResource BooleanToVisibilityConverter}}" ToolTip="Protegido contra Limpeza Automática"/>
-                                    </DataTemplate>
-                                </DataGridTemplateColumn.CellTemplate>
-                            </DataGridTemplateColumn>
-
-                            <!-- Indicador de Nuvem usando Emoji -->
-                            <DataGridTemplateColumn Header="Nuvem" Width="80">
-                                <DataGridTemplateColumn.CellTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="☁️" Foreground="LimeGreen" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding SincronizadoComNuvem, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                                    </DataTemplate>
-                                </DataGridTemplateColumn.CellTemplate>
-                            </DataGridTemplateColumn>
-
-                            <DataGridTextColumn Header="Anotações" Binding="{Binding Anotacoes}" Width="*"/>
-
-                            <!-- Nova Coluna de Ações atualizada -->
-                            <DataGridTemplateColumn Header="Ações" Width="320">
-                                <DataGridTemplateColumn.CellTemplate>
-                                    <DataTemplate>
-                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                            <Button Content="⭐ Proteger" Background="Transparent" Foreground="Gold" BorderThickness="0" Cursor="Hand" Margin="0,0,10,0" CommandParameter="{Binding}" Click="BtnProteger_Click"/>
-                                            <Button Content="📝 Anotar" Background="Transparent" Foreground="#AAAAAA" BorderThickness="0" Cursor="Hand" Margin="0,0,10,0" CommandParameter="{Binding}" Click="BtnAnotar_Click"/>
-                                            <Button Content="▶️ Ouvir" Background="Transparent" Foreground="LightSkyBlue" BorderThickness="0" Cursor="Hand" Margin="0,0,10,0" CommandParameter="{Binding}" Click="BtnPlay_Click"/>
-                                            <Button Content="💾 Exportar" Background="Transparent" Foreground="Orange" BorderThickness="0" Cursor="Hand" CommandParameter="{Binding}" Click="BtnExportar_Click"/>
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </DataGridTemplateColumn.CellTemplate>
-                            </DataGridTemplateColumn>
-                        </DataGrid.Columns>
-                    </DataGrid>
-                </Grid>
-            </Border>
+                </Border>
+            </Grid>
         </Grid>
-
-        <!-- RODAPÉ COMPACTO -->
-        <Border Grid.Row="4" Background="#0C0C0C" BorderBrush="#222222" BorderThickness="0,1,0,0">
-            <TextBlock Text="Engeradios Cloud Sync v2.0 - Sistema Protegido por Criptografia DPAPI" Foreground="#555555" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-        </Border>
-    </Grid>
+    </DockPanel>
 </Window>

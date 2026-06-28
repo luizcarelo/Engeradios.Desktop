@@ -1,4 +1,6 @@
-﻿using System;
+﻿// Caminho do arquivo: Engeradios.Desktop/Services/CloudSyncService.cs
+
+using System;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -23,6 +25,7 @@ namespace Engeradios.Desktop.Services
 
         public CloudSyncService()
         {
+            // Aumentado o timeout para garantir o envio mesmo em ligações 3G/4G fracas
             _httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
         }
 
@@ -44,7 +47,8 @@ namespace Engeradios.Desktop.Services
                 {
                     if (!File.Exists(registo.CaminhoFicheiro)) continue;
 
-                    bool sucesso = await FazerUploadParaNuvemAsync(registo, apiKey);
+                    // ETAPA 4: Política de Tentativas (Retry Policy) com Atraso Exponencial
+                    bool sucesso = await TentarUploadComRetryAsync(registo, apiKey, maxTentativas: 3);
 
                     if (sucesso)
                     {
@@ -65,7 +69,33 @@ namespace Engeradios.Desktop.Services
             return arquivosSincronizados;
         }
 
-        // CORREÇÃO: Método que faltava!
+        // Motor de Tentativas: Garante a entrega mesmo com micro-cortes de internet
+        private async Task<bool> TentarUploadComRetryAsync(RegistoAudio registo, string apiKey, int maxTentativas)
+        {
+            for (int tentativa = 1; tentativa <= maxTentativas; tentativa++)
+            {
+                try
+                {
+                    bool resultado = await FazerUploadParaNuvemAsync(registo, apiKey);
+                    if (resultado) return true; // Sucesso, sai do loop
+                }
+                catch (HttpRequestException)
+                {
+                    // Falha de rede. Se for a última tentativa, repassa o erro ou desiste calado
+                    if (tentativa == maxTentativas) throw;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Erro desconhecido no upload: {ex.Message}");
+                    return false;
+                }
+
+                // Espera 2s, depois 4s, depois 8s... antes de tentar novamente (Backoff)
+                await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, tentativa)));
+            }
+            return false;
+        }
+
         public async Task SincronizarLogsAsync()
         {
             try
@@ -84,14 +114,21 @@ namespace Engeradios.Desktop.Services
                 _httpClient.DefaultRequestHeaders.Clear();
                 _httpClient.DefaultRequestHeaders.Add("X-API-KEY", apiKey);
 
-                var response = await _httpClient.PostAsync(_apiLogsUrl, conteudoHttp);
-
-                if (response.IsSuccessStatusCode)
+                // Retry Policy para os Logs também
+                for (int tentativa = 1; tentativa <= 3; tentativa++)
                 {
-                    foreach (var log in logsPendentes)
+                    var response = await _httpClient.PostAsync(_apiLogsUrl, conteudoHttp);
+
+                    if (response.IsSuccessStatusCode)
                     {
-                        dbService.MarcarLogComoSincronizado(log.Id);
+                        foreach (var log in logsPendentes)
+                        {
+                            dbService.MarcarLogComoSincronizado(log.Id);
+                        }
+                        break; // Sucesso, aborta novas tentativas
                     }
+
+                    await Task.Delay(TimeSpan.FromSeconds(2 * tentativa));
                 }
             }
             catch (Exception ex)
@@ -102,31 +139,28 @@ namespace Engeradios.Desktop.Services
 
         private async Task<bool> FazerUploadParaNuvemAsync(RegistoAudio registo, string apiKey)
         {
-            try
-            {
-                using var form = new MultipartFormDataContent();
+            using var form = new MultipartFormDataContent();
 
-                form.Add(new StringContent(registo.Canal), "canal");
-                form.Add(new StringContent(registo.DataHoraGravacao.ToString("yyyy-MM-dd HH:mm:ss")), "data_hora");
-                form.Add(new StringContent(registo.DuracaoSegundos.ToString()), "duracao");
-                form.Add(new StringContent(registo.Anotacoes ?? string.Empty), "anotacoes");
+            form.Add(new StringContent(registo.Canal), "canal");
+            form.Add(new StringContent(registo.DataHoraGravacao.ToString("yyyy-MM-dd HH:mm:ss")), "data_hora");
+            form.Add(new StringContent(registo.DuracaoSegundos.ToString()), "duracao");
+            form.Add(new StringContent(registo.Anotacoes ?? string.Empty), "anotacoes");
 
-                using var fileStream = new FileStream(registo.CaminhoFicheiro, FileMode.Open, FileAccess.Read);
-                var fileContent = new StreamContent(fileStream);
-                fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse("audio/wav");
-                form.Add(fileContent, "ficheiro_audio", Path.GetFileName(registo.CaminhoFicheiro));
+            using var fileStream = new FileStream(registo.CaminhoFicheiro, FileMode.Open, FileAccess.Read);
+            using var fileContent = new StreamContent(fileStream);
 
-                _httpClient.DefaultRequestHeaders.Clear();
-                _httpClient.DefaultRequestHeaders.Add("X-API-KEY", apiKey);
+            // ETAPA 4: Suporte inteligente a MP3 e WAV dinamicamente
+            string extensao = Path.GetExtension(registo.CaminhoFicheiro).ToLower();
+            string mimeType = extensao == ".mp3" ? "audio/mpeg" : "audio/wav";
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue(mimeType);
 
-                var response = await _httpClient.PostAsync(_apiUrl, form);
-                return response.IsSuccessStatusCode;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Erro no upload do ID {registo.Id}: {ex.Message}");
-                return false;
-            }
+            form.Add(fileContent, "ficheiro_audio", Path.GetFileName(registo.CaminhoFicheiro));
+
+            _httpClient.DefaultRequestHeaders.Clear();
+            _httpClient.DefaultRequestHeaders.Add("X-API-KEY", apiKey);
+
+            var response = await _httpClient.PostAsync(_apiUrl, form);
+            return response.IsSuccessStatusCode;
         }
 
         private List<RegistoAudio> ObterRegistosPendentes()
@@ -136,6 +170,7 @@ namespace Engeradios.Desktop.Services
             connection.Open();
             using var cmd = connection.CreateCommand();
 
+            // Puxa em lotes de 5 para não sobrecarregar a memória
             cmd.CommandText = "SELECT Id, Canal, DataHoraGravacao, CaminhoFicheiro, DuracaoSegundos, Anotacoes FROM RegistroAudios WHERE SincronizadoComNuvem = 0 LIMIT 5;";
 
             using var reader = cmd.ExecuteReader();
