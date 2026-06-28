@@ -19,6 +19,7 @@ namespace Engeradios.Desktop
         public bool TemaSelecionadoEscuro { get; private set; } = true;
 
         private readonly DatabaseService _databaseService;
+        private bool _modoPrimeiroUso = false;
 
         public LoginWindow()
         {
@@ -52,26 +53,36 @@ namespace Engeradios.Desktop
 
         private void VerificarPrimeiroUso()
         {
-            // Se o banco estiver vazio (nem o admin padrão existe), forçamos a criação do primeiro Administrador
             var usuarios = _databaseService.ObterUsuarios();
-            if (usuarios.Count == 0 || (usuarios.Count == 1 && usuarios[0].Username == "admin" && _databaseService.ValidarLogin("admin", "admin") == "Administrador"))
+
+            if (usuarios.Count == 0 ||
+                (usuarios.Count == 1 &&
+                 usuarios[0].Username == "admin" &&
+                 _databaseService.ValidarLogin("admin", "admin") == "Administrador"))
             {
-                // Se só tem o admin padrão ou nenhum, mostramos uma mensagem simpática
+                _modoPrimeiroUso = true;
+
                 TxtSubtitulo.Text = "Configuração Inicial: Defina a senha do Administrador";
                 TxtUsuario.Text = "admin";
-                TxtUsuario.IsEnabled = false; // Não deixa mudar o nome do primeiro user
+                TxtUsuario.IsEnabled = false;
                 LblUsuario.Text = "Utilizador (Administrador Principal)";
+                LblSenha.Text = "Nova senha do administrador";
                 BtnEntrar.Content = "CONFIGURAR E ENTRAR";
 
-                // Removemos o 'admin' padrão criado automaticamente na etapa anterior para forçar uma nova senha segura
-                if (usuarios.Count > 0)
-                {
-                    // Idealmente teríamos um método no dbService para forçar atualização de senha.
-                    // Por simplicidade na primeira execução, se a senha for "admin", o login abaixo forçará a troca.
-                }
+                LblConfirmarSenha.Visibility = Visibility.Visible;
+                BordaConfirmarSenha.Visibility = Visibility.Visible;
+
+                TxtSenha.Clear();
+                TxtConfirmarSenha.Clear();
+                TxtSenha.Focus();
             }
             else
             {
+                _modoPrimeiroUso = false;
+
+                LblConfirmarSenha.Visibility = Visibility.Collapsed;
+                BordaConfirmarSenha.Visibility = Visibility.Collapsed;
+
                 TxtUsuario.Focus();
             }
         }
@@ -92,6 +103,7 @@ namespace Engeradios.Desktop
         private void FazerLogin()
         {
             TxtErro.Visibility = Visibility.Collapsed;
+
             string username = TxtUsuario.Text.Trim();
             string password = TxtSenha.Password;
 
@@ -103,23 +115,10 @@ namespace Engeradios.Desktop
 
             try
             {
-                // Tratamento especial para o primeiro uso
-                if (BtnEntrar.Content.ToString() == "CONFIGURAR E ENTRAR")
+                if (_modoPrimeiroUso)
                 {
-                    if (password.Length < 6)
-                    {
-                        MostrarErro("A senha do administrador deve ter pelo menos 6 caracteres.");
-                        return;
-                    }
-
-                    // Remove o admin temporário e cria o definitivo
-                    var usuariosAntigos = _databaseService.ObterUsuarios();
-                    if (usuariosAntigos.Count > 0)
-                    {
-                        // Usando query direta aqui apenas para resolver o "admin" hardcoded da etapa 1 sem mudar a interface do DatabaseService
-                        // O ideal seria um método _databaseService.AtualizarSenhaUsuario("admin", password)
-                        MessageBox.Show("Para alterar a senha padrão, use o menu de gestão após entrar com admin/admin por agora. A implementação completa exigirá alteração no DatabaseService.");
-                    }
+                    ConfigurarPrimeiroAdministrador(username, password, TxtConfirmarSenha.Password);
+                    return;
                 }
 
                 string? nivel = _databaseService.ValidarLogin(username, password);
@@ -138,15 +137,98 @@ namespace Engeradios.Desktop
             }
             catch (Exception ex)
             {
-                MostrarErro($"Erro ao aceder à base de dados: {ex.Message}");
+                MostrarErro($"Erro ao acessar o banco de dados: {ex.Message}");
             }
         }
 
+        private void ConfigurarPrimeiroAdministrador(string username, string novaSenha, string confirmacaoSenha)
+        {
+            if (!string.Equals(username, "admin", StringComparison.OrdinalIgnoreCase))
+            {
+                MostrarErro("O primeiro usuário deve ser o administrador principal 'admin'.");
+                return;
+            }
+
+            string? erroSenha = ValidarNovaSenhaAdministrador(username, novaSenha, confirmacaoSenha);
+            if (!string.IsNullOrEmpty(erroSenha))
+            {
+                MostrarErro(erroSenha);
+                return;
+            }
+
+            bool senhaAtualizada = _databaseService.AtualizarSenhaUsuario("admin", novaSenha);
+            if (!senhaAtualizada)
+            {
+                MostrarErro("Não foi possível atualizar a senha do administrador.");
+                return;
+            }
+
+            string? nivel = _databaseService.ValidarLogin("admin", novaSenha);
+            if (nivel != "Administrador")
+            {
+                MostrarErro("Não foi possível validar a nova senha do administrador. Tente novamente.");
+                return;
+            }
+
+            UtilizadorLogado = "admin";
+            NivelDeAcesso = nivel;
+
+            MessageBox.Show(
+                "Senha do administrador configurada com sucesso.",
+                "Primeira configuração concluída",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+
+            this.DialogResult = true;
+            this.Close();
+        }
+
+        private static string? ValidarNovaSenhaAdministrador(string username, string novaSenha, string confirmacaoSenha)
+        {
+            if (string.IsNullOrWhiteSpace(novaSenha))
+                return "Informe a nova senha do administrador.";
+
+            if (string.IsNullOrWhiteSpace(confirmacaoSenha))
+                return "Confirme a nova senha do administrador.";
+
+            if (!string.Equals(novaSenha, confirmacaoSenha, StringComparison.Ordinal))
+                return "A confirmação da senha não confere.";
+
+            if (novaSenha.Length < 8)
+                return "A senha do administrador deve ter pelo menos 8 caracteres.";
+
+            if (string.Equals(novaSenha, "admin", StringComparison.OrdinalIgnoreCase))
+                return "A nova senha não pode ser 'admin'.";
+
+            if (string.Equals(novaSenha, username, StringComparison.OrdinalIgnoreCase))
+                return "A nova senha não pode ser igual ao nome do usuário.";
+
+            bool possuiLetra = false;
+            bool possuiNumero = false;
+
+            foreach (char c in novaSenha)
+            {
+                if (char.IsLetter(c)) possuiLetra = true;
+                if (char.IsDigit(c)) possuiNumero = true;
+            }
+
+            if (!possuiLetra || !possuiNumero)
+                return "A senha deve conter pelo menos uma letra e um número.";
+
+            return null;
+        }
         private void MostrarErro(string mensagem)
         {
             TxtErro.Text = mensagem;
             TxtErro.Visibility = Visibility.Visible;
+
             TxtSenha.Clear();
+
+            if (_modoPrimeiroUso)
+            {
+                TxtConfirmarSenha.Clear();
+            }
+
             TxtSenha.Focus();
         }
 
