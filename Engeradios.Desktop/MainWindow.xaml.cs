@@ -361,14 +361,19 @@ namespace Engeradios.Desktop
                     }
                     await _cloudSyncService.SincronizarLogsAsync();
                 }
-                else if (LedNuvem != null)
+                else if (LedNuvem != null && TxtEstadoNuvem != null)
                 {
-                    LedNuvem.Fill = new SolidColorBrush(Colors.Orange); TxtEstadoNuvem.Text = "Aguardando Setup de API";
+                    LedNuvem.Fill = new SolidColorBrush(Colors.Orange);
+                    TxtEstadoNuvem.Text = "Aguardando Setup de API";
                 }
             }
             catch (Exception)
             {
-                if (LedNuvem != null && TxtEstadoNuvem != null) { LedNuvem.Fill = new SolidColorBrush(Colors.Red); TxtEstadoNuvem.Text = "Sem Ligação KingHost"; }
+                if (LedNuvem != null && TxtEstadoNuvem != null)
+                {
+                    LedNuvem.Fill = new SolidColorBrush(Colors.Red);
+                    TxtEstadoNuvem.Text = "Sem ligação com a nuvem";
+                }
             }
         }
 
