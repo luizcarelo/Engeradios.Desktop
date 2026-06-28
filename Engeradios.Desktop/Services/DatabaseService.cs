@@ -19,10 +19,10 @@ namespace Engeradios.Desktop.Services
             InicializarBaseDeDados();
         }
 
-        // Utilitário interno seguro para não depender de ficheiros externos
         private static string GerarHashSenha(string senhaPlana)
         {
-            if (string.IsNullOrEmpty(senhaPlana)) return string.Empty;
+            if (string.IsNullOrEmpty(senhaPlana))
+                return string.Empty;
 
             byte[] bytesSenha = Encoding.UTF8.GetBytes(senhaPlana);
             byte[] hashBytes = SHA256.HashData(bytesSenha);
@@ -71,14 +71,12 @@ namespace Engeradios.Desktop.Services
             command.ExecuteNonQuery();
 
             // Fase 2:
-            // Não criar mais usuário admin com senha padrão.
-            // Em banco novo, a tabela Usuarios fica vazia.
-            // O primeiro administrador será criado pelo LoginWindow,
-            // durante a configuração inicial.
+            // Não cria mais usuário admin com senha padrão.
+            // O primeiro administrador é criado pelo LoginWindow durante a configuração inicial.
         }
 
         // ====================================================================
-        // MÉTODOS SÍNCRONOS (Usados pelas janelas de Configuração, Login, etc.)
+        // USUÁRIOS / AUTENTICAÇÃO
         // ====================================================================
 
         public string? ValidarLogin(string username, string password)
@@ -87,7 +85,11 @@ namespace Engeradios.Desktop.Services
             connection.Open();
 
             var command = connection.CreateCommand();
-            command.CommandText = "SELECT NivelAcesso FROM Usuarios WHERE Username = $user AND Password = $pass;";
+            command.CommandText = @"
+                SELECT NivelAcesso
+                FROM Usuarios
+                WHERE Username = $user COLLATE NOCASE
+                  AND Password = $pass;";
 
             command.Parameters.AddWithValue("$user", username);
             command.Parameters.AddWithValue("$pass", GerarHashSenha(password));
@@ -107,6 +109,29 @@ namespace Engeradios.Desktop.Services
             return total > 0;
         }
 
+        public bool UsuarioExiste(string username)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT COUNT(*) FROM Usuarios WHERE Username = $user COLLATE NOCASE;";
+            command.Parameters.AddWithValue("$user", username.Trim());
+
+            return Convert.ToInt64(command.ExecuteScalar() ?? 0) > 0;
+        }
+
+        public int ContarAdministradores()
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT COUNT(*) FROM Usuarios WHERE NivelAcesso = 'Administrador';";
+
+            return Convert.ToInt32(command.ExecuteScalar() ?? 0);
+        }
+
         public bool CriarPrimeiroAdministrador(string username, string senha)
         {
             using var connection = new SqliteConnection(_connectionString);
@@ -117,16 +142,14 @@ namespace Engeradios.Desktop.Services
             long totalUsuarios = Convert.ToInt64(checkCmd.ExecuteScalar() ?? 0);
 
             if (totalUsuarios > 0)
-            {
                 return false;
-            }
 
             var command = connection.CreateCommand();
             command.CommandText = @"
                 INSERT INTO Usuarios (Username, Password, NivelAcesso)
                 VALUES ($user, $pass, 'Administrador');";
 
-            command.Parameters.AddWithValue("$user", username);
+            command.Parameters.AddWithValue("$user", username.Trim());
             command.Parameters.AddWithValue("$pass", GerarHashSenha(senha));
 
             return command.ExecuteNonQuery() > 0;
@@ -159,40 +182,89 @@ namespace Engeradios.Desktop.Services
 
         public bool AdicionarUsuario(string username, string password, string nivelAcesso)
         {
+            string usuarioNormalizado = username.Trim();
+
+            if (string.IsNullOrWhiteSpace(usuarioNormalizado))
+                return false;
+
+            if (string.IsNullOrWhiteSpace(password))
+                return false;
+
+            if (UsuarioExiste(usuarioNormalizado))
+                return false;
+
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
 
-            var checkCmd = connection.CreateCommand();
-            checkCmd.CommandText = "SELECT COUNT(*) FROM Usuarios WHERE Username = $user;";
-            checkCmd.Parameters.AddWithValue("$user", username);
-
-            if (Convert.ToInt64(checkCmd.ExecuteScalar() ?? 0) > 0)
-            {
-                return false;
-            }
-
             var command = connection.CreateCommand();
-            command.CommandText = "INSERT INTO Usuarios (Username, Password, NivelAcesso) VALUES ($user, $pass, $nivel);";
-            command.Parameters.AddWithValue("$user", username);
+            command.CommandText = @"
+                INSERT INTO Usuarios (Username, Password, NivelAcesso)
+                VALUES ($user, $pass, $nivel);";
+
+            command.Parameters.AddWithValue("$user", usuarioNormalizado);
             command.Parameters.AddWithValue("$pass", GerarHashSenha(password));
             command.Parameters.AddWithValue("$nivel", nivelAcesso);
 
-            command.ExecuteNonQuery();
-
-            return true;
+            return command.ExecuteNonQuery() > 0;
         }
 
-        public void RemoverUsuario(int id)
+        public bool AtualizarSenhaUsuario(string username, string novaSenha)
         {
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
 
             var command = connection.CreateCommand();
-            command.CommandText = "DELETE FROM Usuarios WHERE Id = $id AND Username != 'admin';";
-            command.Parameters.AddWithValue("$id", id);
+            command.CommandText = "UPDATE Usuarios SET Password = $pass WHERE Username = $user COLLATE NOCASE;";
+            command.Parameters.AddWithValue("$pass", GerarHashSenha(novaSenha));
+            command.Parameters.AddWithValue("$user", username.Trim());
 
-            command.ExecuteNonQuery();
+            return command.ExecuteNonQuery() > 0;
         }
+
+        public bool RemoverUsuario(int id)
+        {
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+
+            string? username = null;
+            string? nivelAcesso = null;
+
+            var selectCmd = connection.CreateCommand();
+            selectCmd.CommandText = "SELECT Username, NivelAcesso FROM Usuarios WHERE Id = $id;";
+            selectCmd.Parameters.AddWithValue("$id", id);
+
+            using (var reader = selectCmd.ExecuteReader())
+            {
+                if (reader.Read())
+                {
+                    username = reader.GetString(0);
+                    nivelAcesso = reader.GetString(1);
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(nivelAcesso))
+                return false;
+
+            if (string.Equals(nivelAcesso, "Administrador", StringComparison.OrdinalIgnoreCase))
+            {
+                var countCmd = connection.CreateCommand();
+                countCmd.CommandText = "SELECT COUNT(*) FROM Usuarios WHERE NivelAcesso = 'Administrador';";
+                int totalAdmins = Convert.ToInt32(countCmd.ExecuteScalar() ?? 0);
+
+                if (totalAdmins <= 1)
+                    return false;
+            }
+
+            var deleteCmd = connection.CreateCommand();
+            deleteCmd.CommandText = "DELETE FROM Usuarios WHERE Id = $id;";
+            deleteCmd.Parameters.AddWithValue("$id", id);
+
+            return deleteCmd.ExecuteNonQuery() > 0;
+        }
+
+        // ====================================================================
+        // AUDITORIA
+        // ====================================================================
 
         public List<LogAuditoria> ObterLogs(int limite = 500)
         {
@@ -267,7 +339,10 @@ namespace Engeradios.Desktop.Services
             connection.Open();
 
             var command = connection.CreateCommand();
-            command.CommandText = "INSERT INTO AuditoriaLogs (DataHora, Utilizador, Acao, Criticidade) VALUES ($data, $user, $acao, $criticidade);";
+            command.CommandText = @"
+                INSERT INTO AuditoriaLogs (DataHora, Utilizador, Acao, Criticidade)
+                VALUES ($data, $user, $acao, $criticidade);";
+
             command.Parameters.AddWithValue("$data", log.DataHora.ToString("O"));
             command.Parameters.AddWithValue("$user", log.Operador);
             command.Parameters.AddWithValue("$acao", log.Acao);
@@ -276,18 +351,9 @@ namespace Engeradios.Desktop.Services
             command.ExecuteNonQuery();
         }
 
-        public bool AtualizarSenhaUsuario(string username, string novaSenha)
-        {
-            using var connection = new SqliteConnection(_connectionString);
-            connection.Open();
-
-            var command = connection.CreateCommand();
-            command.CommandText = "UPDATE Usuarios SET Password = $pass WHERE Username = $user;";
-            command.Parameters.AddWithValue("$pass", GerarHashSenha(novaSenha));
-            command.Parameters.AddWithValue("$user", username);
-
-            return command.ExecuteNonQuery() > 0;
-        }
+        // ====================================================================
+        // REGISTROS DE ÁUDIO
+        // ====================================================================
 
         public void AtualizarAnotacao(int id, string anotacao)
         {
@@ -353,7 +419,7 @@ namespace Engeradios.Desktop.Services
                     DuracaoSegundos = reader.GetInt32(4),
                     Anotacoes = reader.IsDBNull(5) ? string.Empty : reader.GetString(5),
                     SincronizadoComNuvem = reader.GetInt32(6) == 1,
-                    Protegido = reader.FieldCount > 7 && !reader.IsDBNull(7) ? reader.GetInt32(7) == 1 : false
+                    Protegido = reader.FieldCount > 7 && !reader.IsDBNull(7) && reader.GetInt32(7) == 1
                 });
             }
 
@@ -385,7 +451,7 @@ namespace Engeradios.Desktop.Services
                     DuracaoSegundos = reader.GetInt32(4),
                     Anotacoes = reader.IsDBNull(5) ? string.Empty : reader.GetString(5),
                     SincronizadoComNuvem = reader.GetInt32(6) == 1,
-                    Protegido = reader.FieldCount > 7 && !reader.IsDBNull(7) ? reader.GetInt32(7) == 1 : false
+                    Protegido = reader.FieldCount > 7 && !reader.IsDBNull(7) && reader.GetInt32(7) == 1
                 });
             }
 
@@ -393,39 +459,36 @@ namespace Engeradios.Desktop.Services
         }
 
         // ====================================================================
-        // MÉTODOS ASSÍNCRONOS (Usados pela MainWindow para não travar a UI)
+        // MÉTODOS ASSÍNCRONOS
         // ====================================================================
 
         public async Task<List<RegistoAudio>> ObterHistoricoAsync()
         {
             var lista = new List<RegistoAudio>();
 
-            using (var connection = new SqliteConnection(_connectionString))
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+
+            var command = connection.CreateCommand();
+            command.CommandText = "SELECT * FROM RegistroAudios ORDER BY Id DESC LIMIT 200;";
+
+            using var reader = await command.ExecuteReaderAsync();
+
+            while (await reader.ReadAsync())
             {
-                await connection.OpenAsync();
+                string? dataString = reader.IsDBNull(2) ? null : reader.GetString(2);
 
-                var command = connection.CreateCommand();
-                command.CommandText = "SELECT * FROM RegistroAudios ORDER BY Id DESC LIMIT 200;";
-
-                using (var reader = await command.ExecuteReaderAsync())
+                lista.Add(new RegistoAudio
                 {
-                    while (await reader.ReadAsync())
-                    {
-                        string? dataString = reader.IsDBNull(2) ? null : reader.GetString(2);
-
-                        lista.Add(new RegistoAudio
-                        {
-                            Id = reader.GetInt32(0),
-                            Canal = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
-                            DataHoraGravacao = string.IsNullOrEmpty(dataString) ? DateTime.Now : DateTime.Parse(dataString),
-                            CaminhoFicheiro = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
-                            DuracaoSegundos = reader.GetInt32(4),
-                            Anotacoes = reader.IsDBNull(5) ? string.Empty : reader.GetString(5),
-                            SincronizadoComNuvem = reader.GetInt32(6) == 1,
-                            Protegido = reader.FieldCount > 7 && !reader.IsDBNull(7) ? reader.GetInt32(7) == 1 : false
-                        });
-                    }
-                }
+                    Id = reader.GetInt32(0),
+                    Canal = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
+                    DataHoraGravacao = string.IsNullOrEmpty(dataString) ? DateTime.Now : DateTime.Parse(dataString),
+                    CaminhoFicheiro = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                    DuracaoSegundos = reader.GetInt32(4),
+                    Anotacoes = reader.IsDBNull(5) ? string.Empty : reader.GetString(5),
+                    SincronizadoComNuvem = reader.GetInt32(6) == 1,
+                    Protegido = reader.FieldCount > 7 && !reader.IsDBNull(7) && reader.GetInt32(7) == 1
+                });
             }
 
             return lista;
@@ -433,26 +496,24 @@ namespace Engeradios.Desktop.Services
 
         public async Task InserirRegistoAsync(RegistoAudio registo)
         {
-            using (var connection = new SqliteConnection(_connectionString))
-            {
-                await connection.OpenAsync();
+            using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
 
-                var command = connection.CreateCommand();
+            var command = connection.CreateCommand();
 
-                command.CommandText = @"
-                    INSERT INTO RegistroAudios (Canal, DataHoraGravacao, CaminhoFicheiro, DuracaoSegundos, Anotacoes, SincronizadoComNuvem, Protegido)
-                    VALUES ($canal, $data, $caminho, $duracao, $anotacoes, $sincronizado, $protegido);";
+            command.CommandText = @"
+                INSERT INTO RegistroAudios (Canal, DataHoraGravacao, CaminhoFicheiro, DuracaoSegundos, Anotacoes, SincronizadoComNuvem, Protegido)
+                VALUES ($canal, $data, $caminho, $duracao, $anotacoes, $sincronizado, $protegido);";
 
-                command.Parameters.AddWithValue("$canal", registo.Canal);
-                command.Parameters.AddWithValue("$data", registo.DataHoraGravacao.ToString("O"));
-                command.Parameters.AddWithValue("$caminho", registo.CaminhoFicheiro);
-                command.Parameters.AddWithValue("$duracao", registo.DuracaoSegundos);
-                command.Parameters.AddWithValue("$anotacoes", registo.Anotacoes ?? string.Empty);
-                command.Parameters.AddWithValue("$sincronizado", registo.SincronizadoComNuvem ? 1 : 0);
-                command.Parameters.AddWithValue("$protegido", registo.Protegido ? 1 : 0);
+            command.Parameters.AddWithValue("$canal", registo.Canal ?? string.Empty);
+            command.Parameters.AddWithValue("$data", registo.DataHoraGravacao.ToString("O"));
+            command.Parameters.AddWithValue("$caminho", registo.CaminhoFicheiro ?? string.Empty);
+            command.Parameters.AddWithValue("$duracao", registo.DuracaoSegundos);
+            command.Parameters.AddWithValue("$anotacoes", registo.Anotacoes ?? string.Empty);
+            command.Parameters.AddWithValue("$sincronizado", registo.SincronizadoComNuvem ? 1 : 0);
+            command.Parameters.AddWithValue("$protegido", registo.Protegido ? 1 : 0);
 
-                await command.ExecuteNonQueryAsync();
-            }
+            await command.ExecuteNonQueryAsync();
         }
     }
 }
