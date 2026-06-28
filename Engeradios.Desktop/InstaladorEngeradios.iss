@@ -1,22 +1,22 @@
 ; ======================================================================
-; SCRIPT DE INSTALAÇÃO - ENGERADIOS C3
+; SCRIPT DE INSTALAÇÃO - ENGERADIOS Gravador
 ; ======================================================================
 
 [Setup]
 ; Identificação do Programa
-AppName=Engeradios C3 Command Center
+AppName=Engeradios Gravador Command Center
 AppVersion=2.1.0
 AppPublisher=Engeradios Segurança Eletrônica
 AppPublisherURL=https://www.engeradios.com.br
 AppSupportURL=https://www.engeradios.com.br/suporte
 
 ; Pasta de Instalação Padrão (Program Files)
-DefaultDirName={autopf}\Engeradios C3
+DefaultDirName={autopf}\Engeradios Gravador
 DefaultGroupName=Engeradios
 
 ; Nome e localização do ficheiro de Setup gerado
 OutputDir=.\InstaladorFinal
-OutputBaseFilename=Setup_EngeradiosC3_v2.1.0
+OutputBaseFilename=Setup_EngeradiosGravador_v2.1.0
 
 ; Estética do Instalador
 SetupIconFile=.\icon.ico
@@ -45,13 +45,13 @@ Source: ".\logo_escuro.png"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 ; Cria os atalhos com o ícone oficial
-Name: "{group}\Engeradios C3"; Filename: "{app}\Engeradios.Desktop.exe"; IconFilename: "{app}\icon.ico"
-Name: "{group}\Desinstalar Engeradios C3"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Engeradios C3"; Filename: "{app}\Engeradios.Desktop.exe"; Tasks: desktopicon; IconFilename: "{app}\icon.ico"
+Name: "{group}\Engeradios Gravador"; Filename: "{app}\Engeradios.Desktop.exe"; IconFilename: "{app}\icon.ico"
+Name: "{group}\Desinstalar Engeradios Gravador"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\Engeradios Gravador"; Filename: "{app}\Engeradios.Desktop.exe"; Tasks: desktopicon; IconFilename: "{app}\icon.ico"
 
 [Run]
 ; Inicia automaticamente após instalar
-Filename: "{app}\Engeradios.Desktop.exe"; Description: "{cm:LaunchProgram,Engeradios C3}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Engeradios.Desktop.exe"; Description: "{cm:LaunchProgram,Engeradios Gravador}"; Flags: nowait postinstall skipifsilent
 
 [Dirs]
 ; Garante que a pasta oculta de áudios no C:\ProgramData\Engeradios_Audios exista e tenha permissões para o Windows não bloquear as gravações

@@ -37,7 +37,7 @@ namespace Engeradios.Desktop
         {
             try
             {
-                string dados = $"Suporte Técnico Engeradios C3\nID de Acesso: {TxtIdAcesso.Text}\nPalavra-Passe: {TxtSenhaAcesso.Text}";
+                string dados = $"Suporte Técnico Engeradios Gravador\nID de Acesso: {TxtIdAcesso.Text}\nPalavra-Passe: {TxtSenhaAcesso.Text}";
                 Clipboard.SetText(dados);
                 MessageBox.Show("Credenciais copiadas para a área de transferência!", "Copiar", MessageBoxButton.OK, MessageBoxImage.Information);
             }

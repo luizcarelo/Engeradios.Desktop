@@ -59,7 +59,7 @@ namespace Engeradios.Desktop
             try
             {
                 string caminhoPasta = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                string nomeArquivo = $"Relatorio_Auditoria_C3_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+                string nomeArquivo = $"Relatorio_Auditoria_Gravador_{DateTime.Now:yyyyMMdd_HHmm}.csv";
                 string caminhoCompleto = Path.Combine(caminhoPasta, nomeArquivo);
 
                 using (StreamWriter sw = new(caminhoCompleto)) // Correção IDE0090

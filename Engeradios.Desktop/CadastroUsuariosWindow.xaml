@@ -1,7 +1,7 @@
 ﻿<Window x:Class="Engeradios.Desktop.CadastroUsuariosWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Gestão de Utilizadores - Engeradios C3" Height="500" Width="800"
+        Title="Gestão de Utilizadores - Engeradios Gravador" Height="500" Width="800"
         WindowStartupLocation="CenterOwner" Background="#0F0F0F" FontFamily="Segoe UI"
         ResizeMode="NoResize">
 
